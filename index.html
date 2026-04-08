@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validation des Expertises</title>
+    <script src="assets/js/d3.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --primary: #2c3e50;
+            --accent:  #3498db;
+            --danger:  #e74c3c;
+            --success: #2ecc71;
+            --warn:    #f39c12;
+            --neutral: #95a5a6;
+            --bg:      #f5f6fa;
+            --card-bg: #ffffff;
+            --text:    #2c3e50;
+            --muted:   #7f8c8d;
+            --border:  #dfe6e9;
+            --shadow:  0 2px 8px rgba(0,0,0,.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ---- HEADER ---- */
+        header {
+            background: var(--primary);
+            color: #fff;
+            padding: .9rem 1.4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 6px rgba(0,0,0,.25);
+        }
+        header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .02em; }
+
+        /* ---- BUTTONS ---- */
+        .btn {
+            padding: .45rem .9rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: .85rem;
+            font-weight: 500;
+            transition: filter .15s, transform .1s;
+        }
+        .btn:hover:not(:disabled) { filter: brightness(1.1); }
+        .btn:active:not(:disabled) { transform: scale(.97); }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-success { background: var(--success); color: #fff; }
+        .btn-ghost   { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4); }
+        .btn-sm      { padding: .3rem .65rem; font-size: .78rem; }
+
+        /* ---- MODAL ---- */
+        .overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,.5);
+            z-index: 200;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 2rem 1rem;
+            overflow-y: auto;
+        }
+        .overlay.open { display: flex; }
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 100%;
+            max-width: 460px;
+            box-shadow: 0 12px 40px rgba(0,0,0,.2);
+            margin: auto;
+        }
+        .modal h2 { font-size: 1rem; margin-bottom: 1.2rem; color: var(--primary); }
+
+        /* ---- FORM ---- */
+        .form-group { margin-bottom: .9rem; }
+        .form-group label {
+            display: block;
+            font-size: .78rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            margin-bottom: .3rem;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: .55rem .75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: .88rem;
+            transition: border-color .2s;
+            background: #fff;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .form-hint { font-size: .72rem; color: var(--muted); margin-top: .25rem; }
+        .modal-actions {
+            display: flex; gap: .7rem; justify-content: flex-end; margin-top: 1.4rem;
+        }
+
+        /* ---- MAIN CONTAINER ---- */
+        .container { max-width: 960px; margin: 0 auto; padding: 1.4rem; }
+
+        /* ---- SEARCH CARD ---- */
+        .search-card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 1.2rem 1.4rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.4rem;
+        }
+        .search-card h2 { font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+        .search-row { display: flex; gap: .7rem; align-items: center; }
+        .search-row input {
+            flex: 1;
+            padding: .55rem .75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: .88rem;
+        }
+        .search-row input:focus { outline: none; border-color: var(--accent); }
+
+        /* ---- PERSON BANNER ---- */
+        .person-banner {
+            background: linear-gradient(135deg, var(--primary) 60%, #3d5a7a);
+            color: #fff;
+            border-radius: 10px;
+            padding: 1rem 1.3rem;
+            margin-bottom: 1.3rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+        }
+        .person-banner h3 { font-size: 1.05rem; margin-bottom: .2rem; }
+        .person-banner span { font-size: .78rem; opacity: .65; }
+        .person-icon { font-size: 2rem; opacity: .6; flex-shrink: 0; }
+
+        /* ---- KEYWORDS ---- */
+        .kw-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: .9rem;
+        }
+        .kw-header h2 { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+        .kw-count {
+            background: var(--primary);
+            color: #fff;
+            font-size: .72rem;
+            padding: .15rem .55rem;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .kw-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+            gap: 1rem;
+            margin-bottom: 5rem;
+        }
+
+        /* ---- KEYWORD CARD ---- */
+        .kw-card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 1.1rem 1.2rem;
+            box-shadow: var(--shadow);
+            border-left: 4px solid var(--neutral);
+            transition: border-color .3s, box-shadow .2s;
+        }
+        .kw-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+        .kw-card.pos { border-left-color: var(--success); }
+        .kw-card.neg { border-left-color: var(--danger); }
+
+        .kw-name { font-weight: 600; font-size: .92rem; margin-bottom: .3rem; }
+        .kw-meta { font-size: .7rem; color: var(--muted); margin-bottom: .8rem; }
+
+        .rank-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: .5rem;
+        }
+        .rank-label { font-size: .73rem; color: var(--muted); }
+        .rank-val {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--neutral);
+            transition: color .25s;
+            min-width: 3.5rem;
+            text-align: right;
+        }
+        .rank-val.pos { color: var(--success); }
+        .rank-val.neg { color: var(--danger); }
+
+        /* ---- SLIDER ---- */
+        .slider-wrap {
+            position: relative;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            margin-bottom: .3rem;
+        }
+        .slider-bg {
+            position: absolute;
+            left: 0; right: 0;
+            height: 5px;
+            border-radius: 3px;
+            background: linear-gradient(
+                to right,
+                var(--danger)  0%,
+                var(--warn)    38%,
+                var(--neutral) 50%,
+                #a8d8a8        62%,
+                var(--success) 100%
+            );
+            pointer-events: none;
+        }
+        .slider-zero {
+            position: absolute;
+            left: 50%;
+            height: 14px;
+            width: 2px;
+            background: rgba(0,0,0,.25);
+            border-radius: 1px;
+            transform: translateX(-50%);
+            pointer-events: none;
+        }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            height: 28px;
+            background: transparent;
+            cursor: pointer;
+            margin: 0;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            background: var(--primary);
+            box-shadow: 0 2px 5px rgba(0,0,0,.25);
+            cursor: pointer;
+            transition: transform .1s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+        input[type="range"]::-moz-range-thumb {
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            background: var(--primary);
+            border: none;
+            box-shadow: 0 2px 5px rgba(0,0,0,.25);
+        }
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: .68rem;
+            color: var(--muted);
+        }
+        .slider-labels .neg-lbl { color: var(--danger); }
+        .slider-labels .pos-lbl { color: var(--success); }
+
+        /* ---- SAVE STATUS ---- */
+        .save-status { font-size: .72rem; min-height: 1.2em; margin-top: .4rem; }
+        .save-status.ok   { color: var(--success); }
+        .save-status.err  { color: var(--danger); }
+        .save-status.busy { color: var(--accent); }
+
+        /* ---- STICKY SAVE BAR ---- */
+        .save-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #fff;
+            border-top: 1px solid var(--border);
+            padding: .85rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 -3px 12px rgba(0,0,0,.07);
+            z-index: 90;
+        }
+        .save-bar-info { font-size: .83rem; color: var(--muted); }
+        .save-bar-info strong { color: var(--accent); }
+
+        /* ---- STATES ---- */
+        .loading-state, .empty-state {
+            text-align: center;
+            padding: 3.5rem 1rem;
+            color: var(--muted);
+        }
+        .spinner {
+            display: inline-block;
+            width: 2.2rem; height: 2.2rem;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .75s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty-icon { font-size: 2.5rem; margin-bottom: .8rem; }
+
+        /* ---- TOAST ---- */
+        .toasts {
+            position: fixed;
+            top: 1rem; right: 1rem;
+            z-index: 400;
+            display: flex;
+            flex-direction: column;
+            gap: .5rem;
+        }
+        .toast {
+            padding: .75rem 1.1rem;
+            border-radius: 8px;
+            font-size: .85rem;
+            color: #fff;
+            background: var(--primary);
+            box-shadow: 0 4px 14px rgba(0,0,0,.18);
+            max-width: 320px;
+            animation: toastIn .25s ease;
+            transition: opacity .3s, transform .3s;
+        }
+        .toast.ok  { background: var(--success); }
+        .toast.err { background: var(--danger); }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(40px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+
+        /* ---- UTIL ---- */
+        .hidden { display: none !important; }
+
+        /* ---- RESPONSIVE ---- */
+        @media (max-width: 560px) {
+            .kw-grid { grid-template-columns: 1fr; }
+            header h1 { font-size: .95rem; }
+            .search-row { flex-direction: column; }
+            .search-row input { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+    <h1>Validation des Expertises</h1>
+    <button id="btnOpenSettings" class="btn btn-ghost" >&#9881; Paramètres</button>
+</header>
+    <script src="./assets/js/d3.min.js"></script>
+<!-- TOASTS -->
+<div class="toasts" id="toasts"></div>
+
+<!-- SETTINGS MODAL -->
+<div class="overlay" id="settingsOverlay">
+    <div class="modal">
+        <h2>&#9881; Configuration Omeka S</h2>
+
+        <div class="form-group">
+            <label>URL de base de l'API</label>
+            <input type="url" id="cfgApiBase" placeholder="http://localhost/omk/api" />
+        </div>
+        <div class="form-group">
+            <label>key_identity</label>
+            <input type="text" id="cfgKeyId" placeholder="Identifiant de la clé API" autocomplete="off" />
+        </div>
+        <div class="form-group">
+            <label>key_credential</label>
+            <input type="password" id="cfgKeyCred" placeholder="Credential de la clé API" autocomplete="off" />
+        </div>
+        <div class="form-group">
+            <label>Évaluateur — ID item Omeka S (dcterms:creator)</label>
+            <input type="number" id="cfgCreatorId" placeholder="ex : 42" min="1" />
+            <div class="form-hint">Référence URI vers votre item foaf:Person dans Omeka S</div>
+        </div>
+        <div class="form-group">
+            <label>Propriété de rang (terme vocabulaire)</label>
+            <input type="text" id="cfgRankProp" value="curation:rank" />
+            <div class="form-hint">Terme de la propriété utilisée pour stocker la valeur d'expertise</div>
+        </div>
+
+        <div class="modal-actions">
+            <button id="btnCloseSettings" class="btn" style="background:var(--bg);color:var(--text)" >Annuler</button>
+            <button id="btnSaveSettings" class="btn btn-primary" >Enregistrer</button>
+        </div>
+    </div>
+</div>
+
+<!-- MAIN -->
+<div class="container">
+
+    <!-- Recherche personne -->
+    <div class="search-card">
+        <h2>Charger une personne (foaf:Person)</h2>
+        <div class="search-row">
+            <input type="number" id="personIdInput" placeholder="ID de l'item (ex : 15)" min="1" />
+            <button class="btn btn-primary" onclick="loadPerson()">Charger</button>
+        </div>
+    </div>
+
+    <!-- Bandeau personne -->
+    <div id="personBanner" class="hidden"></div>
+
+    <!-- Chargement -->
+    <div id="loadingState" class="loading-state hidden">
+        <div class="spinner"></div>
+        <p style="margin-top:1rem">Chargement en cours…</p>
+    </div>
+
+    <!-- Vide -->
+    <div id="emptyState" class="empty-state hidden">
+        <div class="empty-icon">&#128269;</div>
+        <p>Aucun concept trouvé via <code>skos:hasTopConcept</code> pour cette personne.</p>
+    </div>
+
+    <!-- Mots-clefs -->
+    <div id="kwSection" class="hidden">
+        <div class="kw-header">
+            <h2>Mots-clefs &amp; expertises</h2>
+            <span class="kw-count" id="kwCount"></span>
+        </div>
+        <div class="kw-grid" id="kwGrid"></div>
+    </div>
+
+</div>
+
+<!-- BARRE DE SAUVEGARDE -->
+<div class="save-bar hidden" id="saveBar">
+    <span class="save-bar-info" id="saveBarInfo">Aucune modification en attente.</span>
+    <button class="btn btn-success" id="saveAllBtn" onclick="saveAll()">&#128190; Enregistrer tout</button>
+</div>
+
+<script type="module">
+'use strict';
+
+    import {pa} from './assets/js/authParams.js';
+    import {auth} from './assets/js/auth.js';
+    import {appUrl} from './assets/js/appUrl.js';
+
+d3.select("#btnOpenSettings").on("click",openSettings);
+d3.select("#btnSaveSettings").on("click",saveSettings);
+d3.select("#btnCloseSettings").on("click",closeSettings);
+
+const a = new auth(pa);
+
+// ──────────────────────────────────────────────
+// CONFIGURATION
+// ──────────────────────────────────────────────
+const STORAGE_KEY = 'validExpertises_cfg';
+const DEFAULTS = {
+    apiBase:    pa.apiOmk,
+    keyId:      pa.ident,
+    keyCred:    pa.key,
+    creatorId:  pa.creatorId,   // Omeka S item o:id for dcterms:creator
+    rankProp:   'curation:rank'
+};
+
+let cfg = { ...DEFAULTS };
+let person       = null;   // current item JSON
+let keywords     = [];     // [{id, label, rank, savedRank, annotationId, valueRef}]
+let pendingCount = 0;
+
+// ──────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────
+(function init() {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+        try { cfg = { ...DEFAULTS, ...JSON.parse(stored) }; }
+        catch(e) { /* ignore */ }
+    }
+    //if (!cfg.keyId) 
+    openSettings();
+    a.getUser(u=>{
+        console.log(u);
+    }); 
+
+})();
+
+// ──────────────────────────────────────────────
+// SETTINGS
+// ──────────────────────────────────────────────
+function openSettings() {
+    document.getElementById('cfgApiBase').value  = cfg.apiBase;
+    document.getElementById('cfgKeyId').value    = cfg.keyId;
+    document.getElementById('cfgKeyCred').value  = cfg.keyCred;
+    document.getElementById('cfgCreatorId').value = cfg.creatorId;
+    document.getElementById('cfgRankProp').value = cfg.rankProp;
+    document.getElementById('settingsOverlay').classList.add('open');
+}
+function closeSettings() {
+    document.getElementById('settingsOverlay').classList.remove('open');
+}
+function saveSettings() {
+    cfg.apiBase   = (document.getElementById('cfgApiBase').value || '').trim().replace(/\/$/, '');
+    cfg.keyId     = document.getElementById('cfgKeyId').value.trim();
+    cfg.keyCred   = document.getElementById('cfgKeyCred').value.trim();
+    cfg.creatorId = document.getElementById('cfgCreatorId').value.trim();
+    cfg.rankProp  = document.getElementById('cfgRankProp').value.trim() || 'curation:rank';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    closeSettings();
+    toast('Configuration enregistrée', 'ok');
+}
+
+// ──────────────────────────────────────────────
+// API HELPERS
+// ──────────────────────────────────────────────
+function buildUrl(path, params = {}) {
+    const u = new URL(`${cfg.apiBase}/${path}`);
+    if (cfg.keyId)   u.searchParams.set('key_identity',   cfg.keyId);
+    if (cfg.keyCred) u.searchParams.set('key_credential', cfg.keyCred);
+    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
+    return u.toString();
+}
+
+async function apiGet(path, params = {}) {
+    const res = await fetch(buildUrl(path, params));
+    if (!res.ok) throw new Error(`GET ${path} → HTTP ${res.status}`);
+    return res.json();
+}
+
+async function apiPatch(path, id, body) {
+    const res = await fetch(buildUrl(`${path}/${id}`), {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body)
+    });
+    if (!res.ok) {
+        let msg = `PATCH ${path}/${id} → HTTP ${res.status}`;
+        try { const j = await res.json(); msg += ': ' + (j.errors ? JSON.stringify(j.errors) : JSON.stringify(j)); }
+        catch(e) {}
+        throw new Error(msg);
+    }
+    return res.json();
+}
+
+async function apiPost(path, body) {
+    const res = await fetch(buildUrl(path), {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body)
+    });
+    if (!res.ok) {
+        let msg = `POST ${path} → HTTP ${res.status}`;
+        try { const j = await res.json(); msg += ': ' + (j.errors ? JSON.stringify(j.errors) : JSON.stringify(j)); }
+        catch(e) {}
+        throw new Error(msg);
+    }
+    return res.json();
+}
+
+// ──────────────────────────────────────────────
+// LABEL EXTRACTION
+// ──────────────────────────────────────────────
+function getLabel(item) {
+    if (item['o:title']) return item['o:title'];
+    for (const p of ['skos:prefLabel','dcterms:title','rdfs:label','foaf:name','schema:name']) {
+        const v = item[p];
+        if (v && v.length && v[0]['@value']) return v[0]['@value'];
+    }
+    return `Item #${item['o:id']}`;
+}
+
+// ──────────────────────────────────────────────
+// LOAD PERSON
+// ──────────────────────────────────────────────
+async function loadPerson() {
+    const personId = parseInt(document.getElementById('personIdInput').value, 10);
+    if (!personId || isNaN(personId)) { toast('Entrez un ID valide', 'err'); return; }
+    if (!cfg.keyId) { toast('Configurez d\'abord l\'API', 'err'); openSettings(); return; }
+
+    setLoading(true);
+    keywords = [];
+    pendingCount = 0;
+
+    try {
+        // 1. Fetch person
+        person = await apiGet(`items/${personId}`);
+        const personLabel = getLabel(person);
+
+        document.getElementById('personBanner').innerHTML = `
+            <div class="person-banner">
+                <div>
+                    <h3>${esc(personLabel)}</h3>
+                    <span>ID : ${personId} &mdash; foaf:Person</span>
+                </div>
+                <div class="person-icon">&#128100;</div>
+            </div>`;
+        document.getElementById('personBanner').classList.remove('hidden');
+
+        // 2. Concepts via skos:hasTopConcept
+        const conceptVals = (person['skos:hasTopConcept'] || [])
+            .filter(v => v.type === 'resource' && v.value_resource_id);
+
+        if (!conceptVals.length) { showEmpty(); setLoading(false); return; }
+
+        // 3. Pré-charger les annotations existantes
+        let existingAnnotations = [];
+        try {
+            const r = await apiGet('value-annotations', { resource_id: personId });
+            existingAnnotations = Array.isArray(r) ? r : [];
+        } catch(e) {
+            console.warn('value-annotations fetch failed:', e.message);
+        }
+
+        // 4. Construire la liste des mots-clefs en parallèle
+        keywords = (await Promise.all(conceptVals.map(async (val, idx) => {
+            // Label du concept
+            let label = val.title || (val['o:label'] || '');
+            if (!label) {
+                try {
+                    const kwItem = await apiGet(`items/${val.value_resource_id}`);
+                    label = getLabel(kwItem);
+                } catch(e) { label = `Concept #${val.value_resource_id}`; }
+            }
+
+            // Annotation existante ?
+            let rank = 0;
+            let annotationId = null;
+
+            const annRef = val['o:annotation'];
+            if (annRef && annRef['o:id']) {
+                annotationId = annRef['o:id'];
+                let annData = existingAnnotations.find(a => a['o:id'] === annotationId);
+                if (!annData) {
+                    try { annData = await apiGet(`value-annotations/${annotationId}`); }
+                    catch(e) { console.warn(`annotation ${annotationId}:`, e.message); }
+                }
+                if (annData) {
+                    const rv = annData[cfg.rankProp];
+                    if (rv && rv.length) rank = Math.max(-100, Math.min(100, parseInt(rv[0]['@value'], 10) || 0));
+                }
+            }
+
+            return { idx, id: val.value_resource_id, label, rank, savedRank: rank, annotationId, valueRef: val };
+        }))).filter(Boolean);
+
+        renderKeywords();
+
+    } catch(e) {
+        toast('Erreur : ' + e.message, 'err');
+        console.error(e);
+    } finally {
+        setLoading(false);
+    }
+}
+
+// ──────────────────────────────────────────────
+// RENDER
+// ──────────────────────────────────────────────
+function renderKeywords() {
+    if (!keywords.length) { showEmpty(); return; }
+
+    document.getElementById('emptyState').classList.add('hidden');
+    document.getElementById('kwCount').textContent = `${keywords.length} mot${keywords.length > 1 ? 's' : ''}`;
+    document.getElementById('kwGrid').innerHTML = keywords.map((kw, i) => cardHTML(kw, i)).join('');
+    document.getElementById('kwSection').classList.remove('hidden');
+    document.getElementById('saveBar').classList.remove('hidden');
+    refreshSaveBar();
+}
+
+function cardHTML(kw, i) {
+    const cls   = kw.rank > 0 ? 'pos' : kw.rank < 0 ? 'neg' : '';
+    const sign  = kw.rank > 0 ? '+' : '';
+    const annTxt = kw.annotationId
+        ? `<span style="color:var(--success)">&#9679; Annotation existante</span>`
+        : `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>`;
+
+    return `
+    <div class="kw-card ${cls}" id="card-${i}">
+        <div class="kw-name">${esc(kw.label)}</div>
+        <div class="kw-meta">${annTxt}</div>
+        <div class="rank-row">
+            <span class="rank-label">Niveau d'expertise</span>
+            <span class="rank-val ${cls}" id="rv-${i}">${sign}${kw.rank}</span>
+        </div>
+        <div class="slider-wrap">
+            <div class="slider-bg"></div>
+            <div class="slider-zero"></div>
+            <input type="range" min="-100" max="100" step="1" value="${kw.rank}"
+                   oninput="onSlider(${i},this.value)"
+                   onchange="onSlider(${i},this.value)">
+        </div>
+        <div class="slider-labels">
+            <span class="neg-lbl">&minus;100</span>
+            <span>0</span>
+            <span class="pos-lbl">+100</span>
+        </div>
+        <div class="save-status" id="ss-${i}"></div>
+    </div>`;
+}
+
+function onSlider(i, rawVal) {
+    const kw   = keywords[i];
+    const prev = kw.rank;
+    kw.rank    = parseInt(rawVal, 10);
+
+    const cls  = kw.rank > 0 ? 'pos' : kw.rank < 0 ? 'neg' : '';
+    const sign = kw.rank > 0 ? '+' : '';
+
+    const rv   = document.getElementById(`rv-${i}`);
+    rv.className = `rank-val ${cls}`;
+    rv.textContent = `${sign}${kw.rank}`;
+
+    document.getElementById(`card-${i}`).className = `kw-card ${cls}`;
+    document.getElementById(`ss-${i}`).innerHTML = '';
+
+    const wasPending = prev !== kw.savedRank;
+    const isPending  = kw.rank !== kw.savedRank;
+    if (wasPending !== isPending) pendingCount += isPending ? 1 : -1;
+    refreshSaveBar();
+}
+
+function refreshSaveBar() {
+    const el = document.getElementById('saveBarInfo');
+    if (pendingCount > 0) {
+        el.innerHTML = `<strong>${pendingCount}</strong> modification${pendingCount > 1 ? 's' : ''} en attente`;
+    } else {
+        el.textContent = 'Toutes les évaluations sont à jour.';
+    }
+}
+
+// ──────────────────────────────────────────────
+// SAVE
+// ──────────────────────────────────────────────
+async function saveAll() {
+    if (!person) return;
+    const btn = document.getElementById('saveAllBtn');
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement…';
+
+    let ok = 0, ko = 0;
+
+    for (let i = 0; i < keywords.length; i++) {
+        const kw = keywords[i];
+        if (kw.rank === kw.savedRank) continue;
+
+        const ss = document.getElementById(`ss-${i}`);
+        ss.className = 'save-status busy';
+        ss.textContent = '⏳ Enregistrement…';
+
+        try {
+            await saveKeyword(kw);
+            kw.savedRank = kw.rank;
+            ok++;
+            ss.className = 'save-status ok';
+            ss.textContent = '✓ Enregistré';
+        } catch(e) {
+            ko++;
+            ss.className = 'save-status err';
+            ss.textContent = '✗ ' + e.message.substring(0, 80);
+            console.error(`save keyword ${kw.label}:`, e);
+        }
+    }
+
+    pendingCount = 0;
+    refreshSaveBar();
+    btn.disabled = false;
+    btn.textContent = '💾 Enregistrer tout';
+
+    if (ko === 0) {
+        toast(`${ok} évaluation${ok > 1 ? 's' : ''} enregistrée${ok > 1 ? 's' : ''}`, 'ok');
+    } else {
+        toast(`${ok} succès — ${ko} erreur${ko > 1 ? 's' : ''}`, 'err');
+    }
+}
+
+async function saveKeyword(kw) {
+    // Payload de l'annotation
+    const rankPayload = [{
+        '@value':   String(kw.rank),
+        'type':     'literal',
+        'is_public': true
+    }];
+
+    const annBody = { [cfg.rankProp]: rankPayload };
+
+    // dcterms:creator → URI vers l'item Omeka S de l'évaluateur
+    if (cfg.creatorId) {
+        annBody['dcterms:creator'] = [{
+            'type':               'uri',
+            '@id':                `${cfg.apiBase}/items/${cfg.creatorId}`,
+            'o:label':            null,
+            'is_public':          true
+        }];
+    }
+
+    if (kw.annotationId) {
+        // ── Mise à jour d'une annotation existante ──
+        const result = await apiPatch('value-annotations', kw.annotationId, annBody);
+        return result;
+    } else {
+        // ── Création via PATCH de l'item (o:is_partial) ──
+        // On reconstruit la liste complète de skos:hasTopConcept
+        // en ajoutant @annotation sur la valeur correspondante
+        const allVals = (person['skos:hasTopConcept'] || []).map(val => {
+            if (val.type !== 'resource') return buildLiteralVal(val);
+            const v = {
+                property_id:       val.property_id,
+                type:              'resource',
+                value_resource_id: val.value_resource_id,
+                is_public:         val.is_public !== false
+            };
+            if (val.value_resource_id === kw.id) {
+                v['@annotation'] = annBody;
+            } else if (val['o:annotation'] && val['o:annotation']['o:id']) {
+                v['@annotation'] = { 'o:id': val['o:annotation']['o:id'] };
+            }
+            return v;
+        });
+
+        const patchBody = {
+            'o:is_partial':      true,
+            'skos:hasTopConcept': allVals
+        };
+
+        const result = await apiPatch('items', person['o:id'], patchBody);
+
+        // Récupérer l'ID de la nouvelle annotation dans la réponse
+        const updated = (result['skos:hasTopConcept'] || [])
+            .find(v => v.value_resource_id === kw.id);
+        if (updated && updated['o:annotation'] && updated['o:annotation']['o:id']) {
+            kw.annotationId = updated['o:annotation']['o:id'];
+            // Mettre à jour le badge dans la carte
+            const meta = document.querySelector(`#card-${kw.idx} .kw-meta`);
+            if (meta) meta.innerHTML = `<span style="color:var(--success)">&#9679; Annotation existante</span>`;
+        }
+
+        // Mettre à jour la copie locale du person pour les sauvegardes suivantes
+        person['skos:hasTopConcept'] = result['skos:hasTopConcept'] || person['skos:hasTopConcept'];
+
+        return result;
+    }
+}
+
+function buildLiteralVal(val) {
+    return {
+        property_id: val.property_id,
+        type:        val.type,
+        '@value':    val['@value'],
+        'lang':      val['@language'] || undefined,
+        is_public:   val.is_public !== false
+    };
+}
+
+// ──────────────────────────────────────────────
+// UI UTILS
+// ──────────────────────────────────────────────
+function setLoading(on) {
+    document.getElementById('loadingState').classList.toggle('hidden', !on);
+    document.getElementById('kwSection').classList.toggle('hidden', on || !keywords.length);
+    if (on) {
+        document.getElementById('emptyState').classList.add('hidden');
+        document.getElementById('saveBar').classList.add('hidden');
+        document.getElementById('personBanner').classList.add('hidden');
+    }
+}
+
+function showEmpty() {
+    document.getElementById('kwSection').classList.add('hidden');
+    document.getElementById('emptyState').classList.remove('hidden');
+    document.getElementById('saveBar').classList.add('hidden');
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+
+function toast(msg, type = 'info') {
+    const c = document.getElementById('toasts');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(40px)';
+        setTimeout(() => el.remove(), 320);
+    }, 3200);
+}
+</script>
+
+</body>
+</html>
