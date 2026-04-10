@@ -1,8 +1,8 @@
 export const pa = {
         mail:'samuel.szoniecky@univ-paris8.fr',
         apiOmk:'http://localhost/omk_paragraphe/api/',
-        ident: 'wtxkaQrRVQHintch1VtuPoMbrAOhXlRl',
-        key: 'QIMothJdgB2YA3xgAxFvt3lTb1q4hh1f',
+        ident: 'ZHxTB6sfRTCPQ09Fqg1601t5lC8xhg2H',
+        key: 'qJ6hUxfkdgGnVSMT80crXjY2t1QmoPJt',
         creatorId:'7457',
         personTypeAllow:'valo:EnseignantChercheur',
         personPropExp:'skos:hasTopConcept',

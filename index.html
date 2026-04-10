@@ -309,7 +309,7 @@ async function loadPerson(personId) {
 
             // 2. Concepts via la propriété des expertises
             const conceptVals = (person[cfg.personPropExp] || [])
-                .filter(v => v.type === 'resource:item' && v.value_resource_id);
+                .filter(v => (v.type === 'resource:item' || v.type === 'resource') && v.value_resource_id);
 
             if (!conceptVals.length) { showEmpty(); setLoading(false); return; }
 
@@ -322,22 +322,10 @@ async function loadPerson(personId) {
                 console.warn('expertises fetch failed:', e.message);
             }
 
-            // 4. Construire la liste des mots-clefs en parallèle
+            // 4. Construire la liste des mots-clefs et des expertises
             keywords = conceptVals.map(c => {
                 c.expertises = existingExpertises.filter(e=>e["valo:expertise"][0].value_resource_id==c.value_resource_id);
-                c.expertises.unshift(c["@annotation"]);
-                //calcul la somme des expertises
-                c.rank = d3.sum(c.expertises, e => {
-                    e.rank = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][0]["@value"]) : 0;
-                    e.cls = e.rank > 0 ?  'pos' : 'neg';
-                    e.sign  = e.rank > 0 ? '+' : '';
-                    e.kw = c["o:id"];
-                    e.creatorId = e["dcterms:creator"] ? e["dcterms:creator"][0].value_resource_id : 'scanr';
-                    e.created = e["o:created"] ? new Date(e["o:created"]["@value"]).toLocaleDateString()  : "-";
-                    return e.rank;
-                })
-                c.cls = c.rank > 0 ?  'pos' : 'neg';
-                c.sign  = c.rank > 0 ? '+' : '';
+                formatKeyword(c);
                 return c;
             });
             
@@ -353,6 +341,32 @@ async function loadPerson(personId) {
     }
 }
 
+function formatKeyword(c){
+    c.expertises.unshift(c["@annotation"]);
+    c.hasExpert=false;
+    //calcul les expertises
+    c.rank = d3.sum(c.expertises, e => {
+        formatExpertise(e);
+        if(e.creatorId==cfg.creatorId)c.hasExpert=true;
+        e.kw = c.value_resource_id;
+        return e.rank;
+    })
+    //on ajoute la validation potentielle de l'expertise
+    if(!c.hasExpert)c.expertises.push({'rank':0, 'cls':'pos', 'sign':'', 'kw':c.value_resource_id, 'creatorId':cfg.creatorId, 'creatorTitle':creator["o:title"], 'created':"-"});
+    c.cls = c.rank > 0 ?  'pos' : 'neg';
+    c.sign  = c.rank > 0 ? '+' : '';
+}
+
+
+function formatExpertise(e){
+    e.rank = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][0]["@value"]) : 0;
+    e.cls = e.rank > 0 ?  'pos' : 'neg';
+    e.sign  = e.rank > 0 ? '+' : '';
+    e.creatorId = e["dcterms:creator"] ? e["dcterms:creator"][0].value_resource_id : 'scanr';
+    e.creatorTitle = e["dcterms:creator"] ? e["dcterms:creator"][0].display_title : "ScanR Top Concept";
+    e.created = e["o:created"] ? new Date(e["o:created"]["@value"]).toLocaleDateString()  : "-";
+}
+
 // ──────────────────────────────────────────────
 // RENDER
 // ──────────────────────────────────────────────
@@ -364,69 +378,120 @@ function renderKeywords() {
     //document.getElementById('kwGrid').innerHTML = keywords.map((kw, i) => cardHTML(kw, i)).join('');
 
     let kw = d3.select('#kwGrid').selectAll('div').data(keywords).enter().append('div')
+            .attr("id",d=>'kw-card-'+d.value_resource_id)
             .attr("class",d=>'kw-card '+d.cls),
         kwTitle = kw.append("div").attr("class","kw-name").text(d=>d.display_title);
-    kwTitle.append('span').attr("class",d=>`rank-val ${d.cls}`).text(d=>d.sign+d.rank);
+    kwTitle.append('span').attr("class",d=>`rank-val-total ${d.cls}`).text(d=>d.sign+d.rank);
 
     kw.append("div").attr("class","kw-meta").html(d=>d.expertises.length <= 0 ? 
         `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>` :
         `<span style="color:var(--success)">&#9679; ${d.expertises.length} Expertise(s) existante(s)</span>`,
     );
     
+    renderExpertise(kw);
+    
+    document.getElementById('kwSection').classList.remove('hidden');
+    document.getElementById('saveBar').classList.remove('hidden');
+    refreshSaveBar();
+}
+
+function renderExpertise(kw){
     let slider = kw.selectAll(".slider").data(d=>d.expertises).enter().append("div").attr("class","slider"),
         rRank = slider.append("div").attr("class","rank-row");
-    rRank.append('span').attr("class","rank-label").text(d=>d["dcterms:creator"] ? d["dcterms:creator"][0].display_title : "Top Concept");
+    rRank.append('span').attr("class","rank-label").text(d=>d.creatorTitle);
     rRank.append('span').attr("class","rank-date").text(d=>d.created);
-    rRank.append('span').attr("class",d=>`rank-val ${d.cls}`).text(d=>d.sign+d.rank);
-    let sliderWrap = slider.append("div").attr("class","slider-wrap");
+    rRank.append('span').attr("id",d=>`rv-${d.kw+"-"+d.creatorId}`).attr("class",d=>`rank-val ${d.cls}`).text(d=>d.sign+d.rank);
+    let sliderWrap = kw.append("div").attr("class","slider-wrap");
     sliderWrap.append("div").attr("class","slider-bg");
     sliderWrap.append("div").attr("class","slider-zero");
     sliderWrap.append("input").attr("type","range").attr("min",-100).attr("max",100).attr("step",1)
         .attr("value",d=>{
             return d.rank;
         })
-        .attr("disabled",d=>d.creatorId==cfg.creatorId ? null : true)
-        .style("cursor",d=>d.creatorId==cfg.creatorId ? "pointer" : "not-allowed")
-        .on("oninput",onSlider)
-        .on("onchange",onSlider);
+        //.attr("disabled",d=>d.creatorId==cfg.creatorId ? null : true)
+        //.style("cursor",d=>d.creatorId==cfg.creatorId ? "pointer" : "not-allowed")
+        .on("input",onSlider)
+        .on("change",onSlider);
 
-    slider.append("div").attr("class","slider-labels")
+    kw.append("div").attr("class","slider-labels")
         .html(`<span class="neg-lbl">&minus;100</span>
                 <span>0</span>
                 <span class="pos-lbl">+100</span>`);
-    slider.append("div").attr("class","save-status").attr("id",d=>"ss-"+d["o:id"]?d["o:id"]:d.kw);
+    kw.append("div").attr("class","save-status").attr("id",d=>"ss-"+d.value_resource_id);
 
-    let barButton = slider.append("div").attr("class","rank-row");
-    barButton.append("button").attr("class",d=>"btn btn-success ").style("float","left").text("Ajouter").on('click',ajoutExpertise)
-    barButton.append("button").attr("class","btn btn-warn").style("display","inline").text("Modifier").on('click',ajoutExpertise)
-    barButton.append("button").attr("class","btn btn-danger").style("float","right").text("Supprimer").on('click',ajoutExpertise)
-    document.getElementById('kwSection').classList.remove('hidden');
-    document.getElementById('saveBar').classList.remove('hidden');
-    refreshSaveBar();
+    //affiche les bouton suivant que le créateur est l'expert 
+    let barButton = kw.append("div").attr("class","rank-button");
+    barButton.append("button").attr("id",d=>'btnCreate'+d.value_resource_id).attr("class","btn btn-success hidden").style("float","left").text("Ajouter").on('click',createExpertise)
+    barButton.append("button").attr("id",d=>'btnUpdate'+d.value_resource_id).attr("class","btn btn-warn hidden").style("display","inline").text("Modifier").on('click',updateExpertise)
+    barButton.append("button").attr("id",d=>'btnDelete'+d.value_resource_id).attr("class",d=>"btn btn-danger"+d.hasExpert?" hidden":"").style("float","right").text("Supprimer").on('click',deleteExpertise)
 }
 
-function ajoutExpertise(e,d){
+async function createExpertise(e,d){
+    console.log(d);    
+    let rank = document.getElementById(`rv-${d.value_resource_id+"-"+cfg.creatorId}`).innerText,
+        titre = `Expertise - ${d.display_title} = ${rank} - pour ${person["o:title"]} fait par ${creator["o:title"]} le ${new Date().toLocaleDateString()}`,
+        data = {
+        'o:resource_template':'Expertise',
+        'o:resource_class':'valo:Expertises_all',
+        "dcterms:title":titre, 
+        "dcterms:creator":{'rid':cfg.creatorId},
+        "valo:expertise":{'rid':d.value_resource_id},
+        "curation:rank":rank,
+        "dcterms:source":{'rid':person["o:id"]}
+    }
+    //création de l'item    
+    let ne = await a.omk.createItem(data);
+    //affichage des nouvelle données
+    let kw = d3.select("#kw-card-"+d.value_resource_id), newEwpertise = [];
+    d.expertises.forEach(element => {
+        if(parseInt(element.creatorId)==ne["dcterms:creator"][0].value_resource_id)newEwpertise.push(ne);
+        else if(element.creatorId!="scanr")newEwpertise.push(element);    
+    });
+    d.expertises = newEwpertise;
+    formatKeyword(d);
+    kw.selectAll(".slider").remove();
+    kw.selectAll(".slider-wrap").remove();
+    kw.selectAll(".slider-labels").remove();
+    kw.selectAll(".save-status").remove();
+    kw.selectAll(".rank-button").remove();
+    
+    renderExpertise(kw);
+}
+
+function updateExpertise(e,d){
     console.log(d);
 }
 
-function onSlider(i, rawVal) {
-    const kw   = keywords[i];
-    const prev = kw.rank;
-    kw.rank    = parseInt(rawVal, 10);
+function deleteExpertise(e,d){
+    console.log(d);
+}
 
-    const cls  = kw.rank > 0 ? 'pos' : kw.rank < 0 ? 'neg' : '';
-    const sign = kw.rank > 0 ? '+' : '';
+function onSlider(e, kw) {
+    const rank = parseInt(e.target.value);
+    if(kw.hasExpert){
+        d3.select("#btnCreate"+kw.value_resource_id).attr("class","btn btn-success hidden");
+        d3.select("#btnUpdate"+kw.value_resource_id).attr("class","btn btn-warn");
+        d3.select("#btnDelete"+kw.value_resource_id).attr("class","btn btn-danger");
+    }else{
+        d3.select("#btnCreate"+kw.value_resource_id).attr("class","btn btn-success");
+        d3.select("#btnUpdate"+kw.value_resource_id).attr("class","btn btn-warn hidden");
+        d3.select("#btnDelete"+kw.value_resource_id).attr("class","btn btn-danger hidden");
+    }
 
-    const rv   = document.getElementById(`rv-${i}`);
+
+    const cls  = rank > 0 ? 'pos' : rank < 0 ? 'neg' : '';
+    const sign = rank > 0 ? '+' : '';
+    const rv   = document.getElementById(`rv-${kw.value_resource_id+"-"+cfg.creatorId}`);
     rv.className = `rank-val ${cls}`;
-    rv.textContent = `${sign}${kw.rank}`;
+    rv.textContent = `${sign}${rank}`;
 
-    document.getElementById(`card-${i}`).className = `kw-card ${cls}`;
-    document.getElementById(`ss-${i}`).innerHTML = '';
-
+    document.getElementById('kw-card-'+kw.value_resource_id).className = `kw-card ${cls}`;
+    document.getElementById("ss-"+kw.value_resource_id).innerHTML = '';
+    /*
     const wasPending = prev !== kw.savedRank;
     const isPending  = kw.rank !== kw.savedRank;
     if (wasPending !== isPending) pendingCount += isPending ? 1 : -1;
+    */
     refreshSaveBar();
 }
 

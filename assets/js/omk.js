@@ -11,6 +11,7 @@ export class omk {
         this.owners = [];
         this.props = [];
         this.class = [];
+        this.items = [];
         this.rts
         let perPage = 1000, types={'items':'o:item','media':'o:media'};
                 
@@ -190,7 +191,7 @@ export class omk {
 
         this.searchItems = function (query, cb=false){
             let url = me.api+'items?'+query, 
-            rs= syncRequest(url);
+            rs = syncRequest(url);
             //console.log(url+page,data);                
             if(cb)cb(rs);                    
             return rs;
@@ -289,6 +290,21 @@ export class omk {
             else
                 return {"property_id": p['o:id'], "@value" : v, "type" : "literal" };    
         }
+
+
+        this.createItem = async function (data, cb=false, verifDoublons=false){
+            if(verifDoublons){
+                let items = me.searchItems(verifDoublons);
+                if(items.length){
+                    if(cb)cb(items[0]);
+                    return items[0];
+                }
+            }
+            let url = me.api+'items?key_identity='+me.ident+'&key_credential='+me.key,
+                rs = await postData({'u':url,'m':'POST'}, me.formatData(data));
+            me.items[rs['o:id']]=rs;
+            return rs;
+        }        
 
         async function postData(url, data = {},file) {
             // Default options are marked with *

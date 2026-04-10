@@ -193,15 +193,30 @@
             align-items: baseline;
             margin-bottom: .5rem;            
         }
+        .rank-button{
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-top: .5rem;            
+        }
         .rank-label { font-size: .73rem; color: var(--muted); float: left;}
         .rank-date { font-size: .73rem; color: var(--muted); display: inline;}
-        .rank-val {
+        .rank-val-total {
             font-size: 1.25rem;
             font-weight: 700;
             color: var(--neutral);
             transition: color .25s;
             float: right;
         }
+        .rank-val {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--neutral);
+            transition: color .25s;
+            float: right;
+        }
+        .rank-val-total.pos { color: var(--success); }
+        .rank-val-total.neg { color: var(--danger); }
         .rank-val.pos { color: var(--success); }
         .rank-val.neg { color: var(--danger); }
 
