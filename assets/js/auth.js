@@ -20,21 +20,21 @@ export class auth {
             console.log('init');
         }
             
-        this.getUser = function (cb){
+        this.getUser = async function (){
 
             //vérifie la connexion à OMK
             if(me.apiOmk) me.apiOmk += me.apiOmk.slice(-1)=='/' ? "" : "/";
             me.omk = new omk({'api':me.apiOmk,'key':me.key,'ident':me.ident,'mail':me.mail});
-            me.omk.getUser(u=>{
-                if(!u){
-                    me.user = false;
-                    me.omk = false;                                                                     
-                }else {
-                    me.user = u;
-                    me.userAdmin = me.user["o:role"] == 'global_admin';            
-                    me.user.id=me.user['o:id'];
-                }
-            });
+            let u = await me.omk.getUser();
+            if(!u){
+                me.user = false;
+                me.omk = false;                                                                     
+            }else {
+                me.user = u;
+                me.userAdmin = me.user["o:role"] == 'global_admin';            
+                me.user.id=me.user['o:id'];
+            }
+            return me.user;
         }
 
         this.init();

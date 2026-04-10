@@ -5,7 +5,7 @@ export class omk {
         this.ident = params.ident ? params.ident : false;
         this.mail = params.mail ? params.mail : false;
         this.api = params.api ? params.api : false;
-        this.vocabs = params.vocabs ? params.vocabs : ['dcterms','foaf','skos','curation'];
+        this.vocabs = params.vocabs ? params.vocabs : ['dcterms','foaf','skos','curation','valo'];
         this.proxy = params.proxy ? params.proxy : true;
         this.user = false;
         this.owners = [];
@@ -203,12 +203,11 @@ export class omk {
             return me.owners[id];
         }
         
-        this.getUser = function (cb=false){
+        this.getUser = async function (cb=false){
             let url = me.api+'users?email='+me.mail+'&key_identity='+me.ident+'&key_credential='+me.key;                
-            d3.json(url).then((data) => {
-                me.user = data.length ? data[0] : false;
-                if(cb)cb(me.user);
-            });
+            let data = await d3.json(url);
+            me.user = data.length ? data[0] : false;
+            return me.user;
         }
 
         this.createRessource = function (data, cb=false, type='items'){
