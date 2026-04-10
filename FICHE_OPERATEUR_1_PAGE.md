@@ -1,0 +1,61 @@
+# Fiche operateur - 1 page
+
+Usage: validation rapide des expertises dans validExpertises.
+
+## 1) Preparation (debut de session)
+
+- Ouvrir l'application dans le navigateur.
+- Verifier les Parametres:
+  - URL API Omeka S
+  - key_identity
+  - key_credential
+  - ID evaluateur
+  - Type personne autorise
+  - Propriete des expertises
+- Verifier que le nom de l'evaluateur s'affiche correctement.
+
+## 2) Procedure standard (par personne)
+
+1. Entrer l'ID personne.
+2. Cliquer sur Charger.
+3. Verifier le bandeau (nom + ID).
+4. Ajuster les sliders d'expertise (de -100 a +100).
+5. Cliquer:
+   - Ajouter si votre expertise n'existe pas encore
+   - Modifier si elle existe deja
+6. Verifier l'absence de message d'erreur.
+
+## 3) Regles de notation (recommandees)
+
+- -100 a -1: expertise faible
+- 0: neutre / non tranche
+- +1 a +100: expertise forte
+
+Conseil: rester coherent d'une personne a l'autre.
+
+## 4) Controle qualite (30 secondes)
+
+- La valeur affichee correspond a votre decision.
+- L'action a ete executee (Ajouter/Modifier).
+- Aucun message d'erreur visible.
+- Recharger la personne si doute de persistance.
+
+## 5) Incidents courants
+
+- Erreur HTTP
+  - Verifier URL API, credentials, disponibilite Omeka S.
+- Type non autorise
+  - Verifier le type de l'item et le parametre Type autorise.
+- Enregistrement impossible
+  - Verifier droits API et proprietes cibles dans Omeka S.
+
+## 6) Fin de session
+
+- Verifier les cas critiques une seconde fois.
+- Noter les cas ambigus a revoir.
+- Laisser des parametres propres pour la prochaine session.
+
+## Aide
+
+Guide complet: GUIDE_OPERATEUR.md
+Documentation projet: README.md
