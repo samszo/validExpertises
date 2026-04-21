@@ -80,7 +80,6 @@
                        autocomplete="off" />
                 <div id="personAcDropdown" class="autocomplete-dropdown hidden"></div>
             </div>
-            <button class="btn btn-primary" onclick="loadPerson()">Charger</button>
         </div>
     </div>
 
@@ -161,7 +160,8 @@ const DEFAULTS = {
     propMail:    pa.mail,
     personTypeAllow:  pa.personTypeAllow,
     personPropExp:  pa.personPropExp,
-    rankProp:   'curation:rank'
+    rankProp:   'curation:rank',
+    idClassPerson : 0
 };
 let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,   // Omeka S item o:id for dcterms:creator
     authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,   // Omeka S item o:id for personne to valid
@@ -186,17 +186,18 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
     }
 
     if (!cfg.keyId) openSettings();
-    if(authorId)loadPerson(authorId);
     showSettings();
+    if(authorId)loadPerson(authorId);
 
 })();
 
-async function showSettings(){
+function showSettings(){
     d3.select(".personTypeAllowCode").html(cfg.personTypeAllow);
     d3.select(".personPropExp").html(cfg.personPropExp);
 
-    creator = await apiGet(`items/${creatorId}`);
+    creator = a.omk.getItem(creatorId);
     d3.select("#creator").text(creator["o:title"] ? creator["o:title"] : "");
+    cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
 
 }
 
@@ -238,58 +239,12 @@ async function saveSettings() {
         }
     );
     await a.getUser();//récupère l'utilisateur lié à la clef d'API 
+    cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
 
     showSettings();
 
     closeSettings();
     toast('Configuration enregistrée', 'ok');
-}
-
-// ──────────────────────────────────────────────
-// API HELPERS
-// ──────────────────────────────────────────────
-function buildUrl(path, params = {}) {
-    const u = new URL(`${cfg.apiBase}/${path}`);
-    if (cfg.keyId)   u.searchParams.set('key_identity',   cfg.keyId);
-    if (cfg.keyCred) u.searchParams.set('key_credential', cfg.keyCred);
-    for (const [k, v] of Object.entries(params)) u.searchParams.set(k, String(v));
-    return u.toString();
-}
-
-async function apiGet(path, params = {}) {
-    const res = await fetch(buildUrl(path, params));
-    if (!res.ok) throw new Error(`GET ${path} → HTTP ${res.status}`);
-    return res.json();
-}
-
-async function apiPatch(path, id, body) {
-    const res = await fetch(buildUrl(`${path}/${id}`), {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body)
-    });
-    if (!res.ok) {
-        let msg = `PATCH ${path}/${id} → HTTP ${res.status}`;
-        try { const j = await res.json(); msg += ': ' + (j.errors ? JSON.stringify(j.errors) : JSON.stringify(j)); }
-        catch(e) {}
-        throw new Error(msg);
-    }
-    return res.json();
-}
-
-async function apiPost(path, body) {
-    const res = await fetch(buildUrl(path), {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body)
-    });
-    if (!res.ok) {
-        let msg = `POST ${path} → HTTP ${res.status}`;
-        try { const j = await res.json(); msg += ': ' + (j.errors ? JSON.stringify(j.errors) : JSON.stringify(j)); }
-        catch(e) {}
-        throw new Error(msg);
-    }
-    return res.json();
 }
 
 // ──────────────────────────────────────────────
@@ -315,7 +270,7 @@ document.getElementById('personSearchInput').addEventListener('input', function(
     if (!query.trim()) { dropdown.classList.add('hidden'); return; }
     acTimer = setTimeout(async () => {
         try {
-            const items = await apiGet('items', { resource_class_id: 162, search: query.trim() });
+            const items = a.omk.searchItems(`property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassPerson}`);
             acIndex = -1;
             if (!items.length) { dropdown.classList.add('hidden'); return; }
             dropdown.innerHTML = items.map(item => {
@@ -329,6 +284,7 @@ document.getElementById('personSearchInput').addEventListener('input', function(
                 el.addEventListener('mousedown', () => {
                     selectedPersonId = parseInt(el.dataset.id);
                     document.getElementById('personSearchInput').value = el.dataset.label;
+                    loadPerson(el.dataset.id);
                     dropdown.classList.add('hidden');
                 });
             });
@@ -380,7 +336,7 @@ async function loadPerson(personId) {
 
     try {
         // 1. Fetch person
-        person = await apiGet(`items/${personId}`);
+        person = a.omk.getItem(personId);
 
         //vérifie si le type correspond à une personne pour un peu de sécurité
         if(cfg.personTypeAllow != person["@type"][1]){
@@ -413,7 +369,7 @@ async function loadPerson(personId) {
             // 3. Pré-charger les expertises existantes
             let existingExpertises = [];
             try {
-                const r = await apiGet(`items/?property[0][joiner]=and&property[0][property]=${propSourceId}&property[0][type]=res&property[0][text]=${personId}&resource_template_id[]=${rtExpertiseId}`);
+                const r = a.omk.searchItems(`property[0][joiner]=and&property[0][property]=${propSourceId}&property[0][type]=res&property[0][text]=${personId}&resource_template_id[]=${rtExpertiseId}`);
                 existingExpertises = Array.isArray(r) ? r : [];
             } catch(e) {
                 console.warn('expertises fetch failed:', e.message);
@@ -474,7 +430,7 @@ function renderKeywords() {
     document.getElementById('emptyState').classList.add('hidden');
     document.getElementById('kwCount').textContent = `${keywords.length} mot${keywords.length > 1 ? 's' : ''}`;
     //document.getElementById('kwGrid').innerHTML = keywords.map((kw, i) => cardHTML(kw, i)).join('');
-
+    d3.select('#kwGrid').selectAll('div').remove();
     let kw = d3.select('#kwGrid').selectAll('div').data(keywords).enter().append('div')
             .attr("id",d=>'kw-card-'+d.value_resource_id)
             .attr("class",d=>'kw-card '+d.cls),
