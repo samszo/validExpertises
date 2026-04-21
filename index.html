@@ -29,6 +29,10 @@
             <input type="url" id="cfgApiBase" placeholder="http://localhost/omk/api" />
         </div>
         <div class="form-group">
+            <label>Propriétaire — mail de l'utilisateur Omeka S</label>
+            <input type="mail" id="cfgPropMail" placeholder="ex : valorisation@univ-paris8.fr" />
+        </div>
+        <div class="form-group">
             <label>key_identity</label>
             <input type="text" id="cfgKeyId" placeholder="Identifiant de la clé API" autocomplete="off" />
         </div>
@@ -109,10 +113,21 @@
 
 </div>
 
-<!-- BARRE DE SAUVEGARDE -->
-<div class="save-bar hidden" id="saveBar">
-    <span class="save-bar-info" id="saveBarInfo">Aucune modification en attente.</span>
-    <button class="btn btn-success" id="saveAllBtn" onclick="saveAll()">&#128190; Enregistrer tout</button>
+<!-- bas de page -->
+<div class="save-bar" id="saveBar">
+    
+    <p>Design by <a href="https://github.com/samszo/" style="color: white;">Samuel
+            Szoniecky</a>
+    </p>
+    <a target="_blank" href="https://paragraphe.univ-paris8.fr/">
+        <img style="height: 40px;" src="assets/img/logo-paragraphe-blanc.svg"
+            alt="Laboratoire Paragraphe" />
+    </a>
+    <a target="_blank" href="https://github.com/samszo/validExpertises">
+        <img style="height: 40px;clip-path: circle(18px);background-color: white;" src="assets/img/GitHub_Invertocat_Black.svg"
+            alt="Sources GitHub" />
+    </a>
+
 </div>
 
 <script type="module">
@@ -128,7 +143,7 @@ d3.select("#btnCloseSettings").on("click",closeSettings);
 
 const aUrl = new appUrl({'url':new URL(document.location)});
 
-const a = new auth(pa);
+let a = new auth(pa);
 await a.getUser();//récupère l'utilisateur lié à la clef d'API 
 
 // ──────────────────────────────────────────────
@@ -139,6 +154,7 @@ const DEFAULTS = {
     apiBase:    pa.apiOmk,
     keyId:      pa.ident,
     keyCred:    pa.key,
+    propMail:    pa.mail,
     personTypeAllow:  pa.personTypeAllow,
     personPropExp:  pa.personPropExp,
     rankProp:   'curation:rank'
@@ -183,6 +199,7 @@ async function showSettings(){
 // ──────────────────────────────────────────────
 function openSettings() {
     document.getElementById('cfgApiBase').value  = cfg.apiBase;
+    document.getElementById('cfgPropMail').value  = cfg.propMail;
     document.getElementById('cfgKeyId').value    = cfg.keyId;
     document.getElementById('cfgKeyCred').value  = cfg.keyCred;
     document.getElementById('cfgCreatorId').value = cfg.creatorId;
@@ -195,8 +212,9 @@ function openSettings() {
 function closeSettings() {
     document.getElementById('settingsOverlay').classList.remove('open');
 }
-function saveSettings() {
+async function saveSettings() {
     cfg.apiBase   = (document.getElementById('cfgApiBase').value || '').trim().replace(/\/$/, '');
+    cfg.propMail = (document.getElementById('cfgPropMail').value || '').trim().replace(/\/$/, '');
     cfg.keyId     = document.getElementById('cfgKeyId').value.trim();
     cfg.keyCred   = document.getElementById('cfgKeyCred').value.trim();
     cfg.creatorId = document.getElementById('cfgCreatorId').value.trim();
@@ -204,6 +222,15 @@ function saveSettings() {
     cfg.personTypeAllow = document.getElementById('cfgPersonTypeAllow').value.trim();
     cfg.personPropExp = document.getElementById('cfgPersonPropExp').value.trim();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));    
+
+    //met à jour les données omk
+    a = new auth({mail:cfg.propMail,
+        apiOmk:cfg.apiBase,
+        ident: cfg.keyId,
+        key: cfg.keyCred
+        }
+    );
+    await a.getUser();//récupère l'utilisateur lié à la clef d'API 
 
     showSettings();
 
@@ -303,7 +330,8 @@ async function loadPerson(personId) {
                         <h3>${esc(personLabel)}</h3>
                         <span>ID : ${personId} &mdash; </span>
                     </div>
-                    <div class="person-icon">&#128100;</div>
+                    <div class="person-icon"><a id="linkToOmk" target="_blank" href="${a.omk.getItemAdminLink(person)}"><img style="height: 40px;" src="assets/img/OmekaS.png"
+            alt="link To Omk" /></a></div>
                 </div>`;
             document.getElementById('personBanner').classList.remove('hidden');
 
@@ -359,7 +387,8 @@ function formatKeyword(c){
 
 
 function formatExpertise(e){
-    e.rank = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][0]["@value"]) : 0;
+    let lastRank = e[cfg.rankProp].length-1;
+    e.rank = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][lastRank]["@value"]) : 0;
     e.cls = e.rank > 0 ?  'pos' : 'neg';
     e.sign  = e.rank > 0 ? '+' : '';
     e.creatorId = e["dcterms:creator"] ? e["dcterms:creator"][0].value_resource_id : 'scanr';
@@ -392,7 +421,6 @@ function renderKeywords() {
     
     document.getElementById('kwSection').classList.remove('hidden');
     document.getElementById('saveBar').classList.remove('hidden');
-    refreshSaveBar();
 }
 
 function renderExpertise(kw){
@@ -423,10 +451,10 @@ function renderExpertise(kw){
     let barButton = kw.append("div").attr("class","rank-button");
     barButton.append("button").attr("id",d=>'btnCreate'+d.value_resource_id).attr("class","btn btn-success hidden").style("float","left").text("Ajouter").on('click',createExpertise)
     barButton.append("button").attr("id",d=>'btnUpdate'+d.value_resource_id).attr("class","btn btn-warn hidden").style("display","inline").text("Modifier").on('click',updateExpertise)
-    barButton.append("button").attr("id",d=>'btnDelete'+d.value_resource_id).attr("class",d=>"btn btn-danger"+d.hasExpert?" hidden":"").style("float","right").text("Supprimer").on('click',deleteExpertise)
+    barButton.append("button").attr("id",d=>'btnDelete'+d.value_resource_id).attr("class",d=>"btn btn-danger"+(d.hasExpert?"":" hidden")).style("float","right").text("Supprimer").on('click',deleteExpertise)
 }
 
-async function createExpertise(e,d){
+function getExpertiseValues(d,update=false){
     console.log(d);    
     let rank = document.getElementById(`rv-${d.value_resource_id+"-"+cfg.creatorId}`).innerText,
         titre = `Expertise - ${d.display_title} = ${rank} - pour ${person["o:title"]} fait par ${creator["o:title"]} le ${new Date().toLocaleDateString()}`,
@@ -434,18 +462,23 @@ async function createExpertise(e,d){
         'o:resource_template':'Expertise',
         'o:resource_class':'valo:Expertises_all',
         "dcterms:title":titre, 
-        "dcterms:creator":{'rid':cfg.creatorId},
-        "valo:expertise":{'rid':d.value_resource_id},
         "curation:rank":rank,
-        "dcterms:source":{'rid':person["o:id"]}
     }
-    //création de l'item    
-    let ne = await a.omk.createItem(data);
+    if(!update){
+        data["dcterms:creator"]={'rid':cfg.creatorId};
+        data["valo:expertise"]={'rid':d.value_resource_id};
+        data["dcterms:source"]={'rid':person["o:id"]};
+    }
+    return data;
+}
+
+function showNewExpertise(d, ne, del=false){
     //affichage des nouvelle données
     let kw = d3.select("#kw-card-"+d.value_resource_id), newEwpertise = [];
     d.expertises.forEach(element => {
-        if(parseInt(element.creatorId)==ne["dcterms:creator"][0].value_resource_id)newEwpertise.push(ne);
-        else if(element.creatorId!="scanr")newEwpertise.push(element);    
+        if(parseInt(element.creatorId)==ne["dcterms:creator"][0].value_resource_id){
+            if(!del)newEwpertise.push(ne);
+        }else if(element.creatorId!="scanr")newEwpertise.push(element);    
     });
     d.expertises = newEwpertise;
     formatKeyword(d);
@@ -458,12 +491,50 @@ async function createExpertise(e,d){
     renderExpertise(kw);
 }
 
-function updateExpertise(e,d){
-    console.log(d);
+function setRankForKeyword(d){
+    //calcul la somme
+    d.rank=0;  
+    let card = d3.select("#kw-card-"+d.value_resource_id);
+    card.selectAll(".rank-val").each(rv=>{
+        d.rank+=rv.rank;
+    });
+    d.cls = d.rank > 0 ?  'pos' : 'neg';
+    d.sign  = d.rank > 0 ? '+' : '';
+    card.select(".rank-val-total").attr('class',"rank-val-total "+d.cls).text(d.rank);
 }
 
-function deleteExpertise(e,d){
-    console.log(d);
+function getCreatorExpertise(d){
+    return d.expertises.filter(element => {
+        return parseInt(element.creatorId)==cfg.creatorId;    
+    })[0];
+}
+
+async function createExpertise(e,d){
+    let data = getExpertiseValues(d),
+        //création de l'item    
+        ne = await a.omk.createItem(data);
+    showNewExpertise(d, ne);
+    setRankForKeyword(d);
+}
+
+async function updateExpertise(e,d){
+    let data = getExpertiseValues(d,true),
+    //filtre l'expertise du createur
+    exp = getCreatorExpertise(d),
+    //modifie l'expertise
+    ne = await a.omk.updateRessource(exp["o:id"],data);
+    showNewExpertise(d, ne);
+    //recalcul la somme 
+    setRankForKeyword(d);
+}
+
+async function deleteExpertise(e,d){
+    let exp = getCreatorExpertise(d),
+        de = await a.omk.deleteItem(exp);
+    showNewExpertise(d,exp,true);
+    //recalcul la somme 
+    setRankForKeyword(d);
+    d3.select("#btnCreate"+d.value_resource_id).attr("class","btn btn-success");
 }
 
 function onSlider(e, kw) {
@@ -471,11 +542,9 @@ function onSlider(e, kw) {
     if(kw.hasExpert){
         d3.select("#btnCreate"+kw.value_resource_id).attr("class","btn btn-success hidden");
         d3.select("#btnUpdate"+kw.value_resource_id).attr("class","btn btn-warn");
-        d3.select("#btnDelete"+kw.value_resource_id).attr("class","btn btn-danger");
     }else{
         d3.select("#btnCreate"+kw.value_resource_id).attr("class","btn btn-success");
         d3.select("#btnUpdate"+kw.value_resource_id).attr("class","btn btn-warn hidden");
-        d3.select("#btnDelete"+kw.value_resource_id).attr("class","btn btn-danger hidden");
     }
 
 
@@ -487,144 +556,6 @@ function onSlider(e, kw) {
 
     document.getElementById('kw-card-'+kw.value_resource_id).className = `kw-card ${cls}`;
     document.getElementById("ss-"+kw.value_resource_id).innerHTML = '';
-    /*
-    const wasPending = prev !== kw.savedRank;
-    const isPending  = kw.rank !== kw.savedRank;
-    if (wasPending !== isPending) pendingCount += isPending ? 1 : -1;
-    */
-    refreshSaveBar();
-}
-
-function refreshSaveBar() {
-    const el = document.getElementById('saveBarInfo');
-    if (pendingCount > 0) {
-        el.innerHTML = `<strong>${pendingCount}</strong> modification${pendingCount > 1 ? 's' : ''} en attente`;
-    } else {
-        el.textContent = 'Toutes les évaluations sont à jour.';
-    }
-}
-
-// ──────────────────────────────────────────────
-// SAVE
-// ──────────────────────────────────────────────
-async function saveAll() {
-    if (!person) return;
-    const btn = document.getElementById('saveAllBtn');
-    btn.disabled = true;
-    btn.textContent = 'Enregistrement…';
-
-    let ok = 0, ko = 0;
-
-    for (let i = 0; i < keywords.length; i++) {
-        const kw = keywords[i];
-        if (kw.rank === kw.savedRank) continue;
-
-        const ss = document.getElementById(`ss-${i}`);
-        ss.className = 'save-status busy';
-        ss.textContent = '⏳ Enregistrement…';
-
-        try {
-            await saveKeyword(kw);
-            kw.savedRank = kw.rank;
-            ok++;
-            ss.className = 'save-status ok';
-            ss.textContent = '✓ Enregistré';
-        } catch(e) {
-            ko++;
-            ss.className = 'save-status err';
-            ss.textContent = '✗ ' + e.message.substring(0, 80);
-            console.error(`save keyword ${kw.label}:`, e);
-        }
-    }
-
-    pendingCount = 0;
-    refreshSaveBar();
-    btn.disabled = false;
-    btn.textContent = '💾 Enregistrer tout';
-
-    if (ko === 0) {
-        toast(`${ok} évaluation${ok > 1 ? 's' : ''} enregistrée${ok > 1 ? 's' : ''}`, 'ok');
-    } else {
-        toast(`${ok} succès — ${ko} erreur${ko > 1 ? 's' : ''}`, 'err');
-    }
-}
-
-async function saveKeyword(kw) {
-    // Payload de l'annotation
-    const rankPayload = [{
-        '@value':   String(kw.rank),
-        'type':     'literal',
-        'is_public': true
-    }];
-
-    const annBody = { [cfg.rankProp]: rankPayload };
-
-    // dcterms:creator → URI vers l'item Omeka S de l'évaluateur
-    if (cfg.creatorId) {
-        annBody['dcterms:creator'] = [{
-            'type':               'uri',
-            '@id':                `${cfg.apiBase}/items/${cfg.creatorId}`,
-            'o:label':            null,
-            'is_public':          true
-        }];
-    }
-
-    if (kw.annotationId) {
-        // ── Mise à jour d'une annotation existante ──
-        const result = await apiPatch('value-annotations', kw.annotationId, annBody);
-        return result;
-    } else {
-        // ── Création via PATCH de l'item (o:is_partial) ──
-        // On reconstruit la liste complète de skos:hasTopConcept
-        // en ajoutant @annotation sur la valeur correspondante
-        const allVals = (person[cfg.personPropExp] || []).map(val => {
-            if (val.type !== 'resource') return buildLiteralVal(val);
-            const v = {
-                property_id:       val.property_id,
-                type:              'resource',
-                value_resource_id: val.value_resource_id,
-                is_public:         val.is_public !== false
-            };
-            if (val.value_resource_id === kw.id) {
-                v['@annotation'] = annBody;
-            } else if (val['o:annotation'] && val['o:annotation']['o:id']) {
-                v['@annotation'] = { 'o:id': val['o:annotation']['o:id'] };
-            }
-            return v;
-        });
-
-        const patchBody = {
-            'o:is_partial':      true,
-            'skos:hasTopConcept': allVals
-        };
-
-        const result = await apiPatch('items', person['o:id'], patchBody);
-
-        // Récupérer l'ID de la nouvelle annotation dans la réponse
-        const updated = (result[cfg.personPropExp] || [])
-            .find(v => v.value_resource_id === kw.id);
-        if (updated && updated['o:annotation'] && updated['o:annotation']['o:id']) {
-            kw.annotationId = updated['o:annotation']['o:id'];
-            // Mettre à jour le badge dans la carte
-            const meta = document.querySelector(`#card-${kw.idx} .kw-meta`);
-            if (meta) meta.innerHTML = `<span style="color:var(--success)">&#9679; Annotation existante</span>`;
-        }
-
-        // Mettre à jour la copie locale du person pour les sauvegardes suivantes
-        person[cfg.personPropExp] = result[cfg.personPropExp] || person[cfg.personPropExp];
-
-        return result;
-    }
-}
-
-function buildLiteralVal(val) {
-    return {
-        property_id: val.property_id,
-        type:        val.type,
-        '@value':    val['@value'],
-        'lang':      val['@language'] || undefined,
-        is_public:   val.is_public !== false
-    };
 }
 
 // ──────────────────────────────────────────────

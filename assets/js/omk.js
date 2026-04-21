@@ -219,7 +219,7 @@ export class omk {
 
         }
 
-        this.updateRessource = function (id, data, type='items', fd=null, m='PUT',cb=false, dataOri=false){
+        this.updateRessource = async function (id, data, type='items', fd=null, m='PUT', dataOri=false){
             let oriData, newData, url = me.api+type+'/'+id+'?key_identity='+me.ident+'&key_credential='+me.key;
             if(data){
                 //récupère les données originales
@@ -228,15 +228,12 @@ export class omk {
                 //met à jour les données
                 for (const p in newData) {
                     if(p!='@type'){
-                        if(oriData[p])oriData[p]=oriData[p].concat(newData[p]);
+                        if(oriData[p] && p!= "o:resource_template" && p!= "o:resource_class")oriData[p]=oriData[p].concat(newData[p]);
                         else oriData[p]=newData[p];    
                     }
                 }
             }
-            postData({'u':url,'m':m}, fd ? fd : oriData).then((rs) => {
-                if(cb)cb(rs);
-            });
-
+            return await postData({'u':url,'m':m}, fd ? fd : oriData);
         }
 
         this.formatData = function (data,type="o:Item"){
@@ -303,6 +300,12 @@ export class omk {
             let url = me.api+'items?key_identity='+me.ident+'&key_credential='+me.key,
                 rs = await postData({'u':url,'m':'POST'}, me.formatData(data));
             me.items[rs['o:id']]=rs;
+            return rs;
+        }        
+
+        this.deleteItem = async function (data){
+            let url = me.api+'items/'+data["o:id"]+'?key_identity='+me.ident+'&key_credential='+me.key,
+                rs = await postData({'u':url,'m':'DELETE'});
             return rs;
         }        
 
