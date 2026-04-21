@@ -75,7 +75,11 @@
     <div class="search-card">
         <h2>Charger une personne <code class="personTypeAllowCode"></code></h2>
         <div class="search-row">
-            <input type="number" id="personIdInput" placeholder="ID de l'item (ex : 15)" min="1" />
+            <div class="autocomplete-wrap">
+                <input type="text" id="personSearchInput" placeholder="Rechercher une personne…"
+                       autocomplete="off" />
+                <div id="personAcDropdown" class="autocomplete-dropdown hidden"></div>
+            </div>
             <button class="btn btn-primary" onclick="loadPerson()">Charger</button>
         </div>
     </div>
@@ -165,7 +169,10 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
     person       = null,   // current item JSON
     keywords     = [],     // [{id, label, rank, savedRank, annotationId, valueRef}]
     pendingCount = 0,
-    creator = null;
+    creator = null,
+    selectedPersonId = null,
+    acTimer = null,
+    acIndex = -1;
 
 
 // ──────────────────────────────────────────────
@@ -298,11 +305,73 @@ function getLabel(item) {
 }
 
 // ──────────────────────────────────────────────
+// PERSON AUTOCOMPLETE
+// ──────────────────────────────────────────────
+document.getElementById('personSearchInput').addEventListener('input', function() {
+    clearTimeout(acTimer);
+    selectedPersonId = null;
+    const query = this.value;
+    const dropdown = document.getElementById('personAcDropdown');
+    if (!query.trim()) { dropdown.classList.add('hidden'); return; }
+    acTimer = setTimeout(async () => {
+        try {
+            const items = await apiGet('items', { resource_class_id: 162, search: query.trim() });
+            acIndex = -1;
+            if (!items.length) { dropdown.classList.add('hidden'); return; }
+            dropdown.innerHTML = items.map(item => {
+                const label = getLabel(item);
+                const id = item['o:id'];
+                return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
+                            <span>${esc(label)}</span><span class="ac-id">#${id}</span>
+                        </div>`;
+            }).join('');
+            dropdown.querySelectorAll('.autocomplete-item').forEach(el => {
+                el.addEventListener('mousedown', () => {
+                    selectedPersonId = parseInt(el.dataset.id);
+                    document.getElementById('personSearchInput').value = el.dataset.label;
+                    dropdown.classList.add('hidden');
+                });
+            });
+            dropdown.classList.remove('hidden');
+        } catch(e) { /* ignore autocomplete errors */ }
+    }, 280);
+});
+
+document.getElementById('personSearchInput').addEventListener('keydown', function(e) {
+    const dropdown = document.getElementById('personAcDropdown');
+    const items = dropdown.querySelectorAll('.autocomplete-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        acIndex = Math.min(acIndex + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('ac-active', i === acIndex));
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        acIndex = Math.max(acIndex - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('ac-active', i === acIndex));
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const active = dropdown.querySelector('.ac-active') || items[0];
+        if (active) {
+            selectedPersonId = parseInt(active.dataset.id);
+            document.getElementById('personSearchInput').value = active.dataset.label;
+            dropdown.classList.add('hidden');
+        }
+    } else if (e.key === 'Escape') {
+        dropdown.classList.add('hidden');
+    }
+});
+
+document.getElementById('personSearchInput').addEventListener('blur', () => {
+    setTimeout(() => document.getElementById('personAcDropdown').classList.add('hidden'), 150);
+});
+
+// ──────────────────────────────────────────────
 // LOAD PERSON
 // ──────────────────────────────────────────────
 async function loadPerson(personId) {
-    //personId = parseInt(document.getElementById('personIdInput').value, 10);
-    if (!personId || isNaN(personId)) { toast('Entrez un ID valide', 'err'); return; }
+    if (!personId) personId = selectedPersonId;
+    if (!personId || isNaN(personId)) { toast('Sélectionnez une personne dans la liste', 'err'); return; }
     if (!cfg.keyId) { toast('Configurez d\'abord l\'API', 'err'); openSettings(); return; }
 
     setLoading(true);

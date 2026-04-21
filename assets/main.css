@@ -131,6 +131,40 @@
         }
         .search-row input:focus { outline: none; border-color: var(--accent); }
 
+        /* ---- AUTOCOMPLETE ---- */
+        .autocomplete-wrap { position: relative; flex: 1; }
+        .autocomplete-wrap input { width: 100%; }
+        .autocomplete-dropdown {
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0; right: 0;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: var(--shadow);
+            max-height: 260px;
+            overflow-y: auto;
+            z-index: 200;
+        }
+        .autocomplete-item {
+            padding: .5rem .8rem;
+            cursor: pointer;
+            font-size: .88rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: .5rem;
+        }
+        .autocomplete-item:hover, .autocomplete-item.ac-active {
+            background: var(--accent);
+            color: #fff;
+        }
+        .autocomplete-item .ac-id {
+            font-size: .72rem;
+            opacity: .65;
+            white-space: nowrap;
+        }
+
         /* ---- PERSON BANNER ---- */
         .person-banner {
             background: linear-gradient(135deg, var(--primary) 60%, #3d5a7a);
