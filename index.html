@@ -214,9 +214,9 @@ let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,
     if(aUrl.params.has('idCreator'))cfg.creatorId = aUrl.params.get('idCreator');
     openSettings();
     if (cfg.keyCred){
-        saveSettings();
+        await saveSettings();
+        if(authorId)loadPerson(authorId);
     }
-    if(authorId)loadPerson(authorId);
 
 })();
 
