@@ -211,7 +211,7 @@ let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,
         try { cfg = { ...DEFAULTS, ...JSON.parse(stored) }; }
         catch(e) { /* ignore */ }
     }
-
+    if(aUrl.params.has('idCreator'))cfg.creatorId = aUrl.params.get('idCreator');
     openSettings();
     if (cfg.keyCred){
         saveSettings();
