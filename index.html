@@ -185,7 +185,11 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
         catch(e) { /* ignore */ }
     }
 
-    if (!cfg.keyId) openSettings();
+    openSettings();
+    if (cfg.keyId){
+        saveSettings();
+        closeSettings(); 
+    }
     showSettings();
     if(authorId)loadPerson(authorId);
 
