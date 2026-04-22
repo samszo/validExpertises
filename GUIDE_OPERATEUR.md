@@ -8,8 +8,9 @@ Version courte imprimable: [FICHE_OPERATEUR_1_PAGE.md](FICHE_OPERATEUR_1_PAGE.md
 
 L'application permet de:
 
-- charger une personne;
+- rechercher puis charger une personne;
 - consulter les expertises deja presentes;
+- ajouter un mot-clef si necessaire;
 - ajouter votre propre evaluation;
 - conserver une trace de vos actions dans Omeka S.
 
@@ -20,16 +21,18 @@ Verifier les elements suivants:
 1. Vous avez l'URL de l'application ouverte dans un navigateur.
 2. Vous disposez des informations Omeka S suivantes:
    - URL API;
+   - mail du proprietaire Omeka S associe a la cle API;
    - key_identity;
    - key_credential;
    - ID de votre fiche evaluateur.
-3. Vous connaissez l'ID de la personne a evaluer.
+3. Vous connaissez le nom ou l'identifiant de la personne a evaluer.
 
 ## Premiere configuration (une seule fois)
 
 1. Cliquer sur Parametres.
 2. Renseigner:
    - URL de base de l'API;
+   - mail du proprietaire / utilisateur Omeka S;
    - key_identity;
    - key_credential;
    - Type autorise pour la personne;
@@ -45,15 +48,31 @@ Resultat attendu:
 
 ## Lancer une evaluation
 
-1. Saisir l'ID de la personne dans le champ de recherche.
-2. Cliquer sur Charger.
+1. Saisir quelques lettres du nom de la personne dans le champ de recherche.
+2. Selectionner la bonne personne dans la liste d'autocompletion.
 3. Verifier le bandeau personne (nom et ID).
 4. Parcourir les cartes de mots-cles/expertises affichees.
+
+Alternative:
+
+- si l'application est ouverte avec un parametre `idAuthor` dans l'URL, la personne peut etre chargee automatiquement a l'ouverture.
 
 Si aucun resultat n'apparait:
 
 - verifier que la personne possede bien des expertises dans la propriete attendue;
 - verifier que le type de la personne correspond au type autorise.
+
+Si la bonne personne n'apparait pas dans l'autocompletion:
+
+- verifier que le vocabulaire de recherche est bien indexe dans Omeka S;
+- essayer avec une autre partie du nom ou avec un identifiant connu.
+
+## Ajouter un mot-clef avant evaluation
+
+1. Utiliser le champ `Ajouter un mot-clef...`.
+2. Saisir quelques lettres du mot-clef recherche.
+3. Selectionner le mot-clef dans la liste d'autocompletion.
+4. Verifier que la carte apparait dans la grille avant de saisir une valeur.
 
 ## Modifier une valeur d'expertise
 
@@ -61,7 +80,7 @@ Si aucun resultat n'apparait:
 2. Observer la mise a jour immediate de la valeur affichee.
 3. Selon le cas:
    - cliquer sur Ajouter pour creer votre expertise;
-   - cliquer sur Modifier si une expertise de votre part existe deja.
+   - si une expertise existe deja, verifier d'abord l'etat affiche sur la carte, car le parcours principal actuellement documente est l'ajout.
 
 Recommandation de saisie:
 
@@ -75,13 +94,15 @@ Recommandation de saisie:
 - Eviter les changements rapides successifs sans verification visuelle.
 - Noter les cas ambigus (expertise contradictoire, donnees incompletes).
 - Recontroler la presence de votre nom/evaluateur dans la carte avant validation.
+- Utiliser les filtres `Sans votre expertise` et `Avec votre expertise` pour avancer de maniere systematique.
+- Utiliser le tri par rang pour relire rapidement les valeurs extremes.
 
 ## Controle qualite rapide
 
 Avant de passer a la personne suivante:
 
 1. Verifier que la valeur affichee est celle voulue.
-2. Verifier que l'action (Ajouter/Modifier) a bien ete executee.
+2. Verifier que l'action `Ajouter` a bien ete executee.
 3. Confirmer qu'aucun message d'erreur n'est visible.
 4. Recharger la personne pour verifier la persistance des donnees.
 
@@ -101,6 +122,11 @@ Action:
 Action:
 - verifier vos droits API;
 - verifier l'existence des proprietes ciblees dans Omeka S.
+
+4. Le mot-clef recherche n'apparait pas
+Action:
+- verifier que le mot-clef existe bien dans Omeka S;
+- verifier que la classe de mot-clef attendue est correctement chargee.
 
 ## Procedure de reprise
 
