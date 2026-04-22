@@ -203,6 +203,43 @@
         .kw-sort-btns { display: flex; gap: .4rem; flex-shrink: 0; }
         .btn-sort { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
         .btn-sort.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+        /* ---- FILTER BAR ---- */
+        .kw-filter-bar {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            margin-bottom: .9rem;
+            flex-wrap: wrap;
+        }
+        .kw-filter-bar input {
+            flex: 0 0 210px;
+            padding: .4rem .7rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: .85rem;
+            background: #fff;
+        }
+        .kw-filter-bar input:focus { outline: none; border-color: var(--accent); }
+        .filter-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
+        .chip {
+            border-radius: 20px;
+            padding: .25rem .75rem;
+            font-size: .78rem;
+            font-weight: 500;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: background .15s, color .15s;
+        }
+        .chip:hover { filter: brightness(.95); }
+        .chip.active          { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .chip.active-todo     { background: var(--warn);    color: #fff; border-color: var(--warn); }
+        .chip.active-done     { background: var(--success); color: #fff; border-color: var(--success); }
+        .chip.active-pos      { background: var(--success); color: #fff; border-color: var(--success); }
+        .chip.active-neg      { background: var(--danger);  color: #fff; border-color: var(--danger); }
+        .kw-filter-count { font-size: .78rem; color: var(--muted); margin-left: auto; white-space: nowrap; }
         .kw-count {
             background: var(--primary);
             color: #fff;

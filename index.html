@@ -121,6 +121,19 @@
             </div>
             <span class="kw-count" id="kwCount"></span>
         </div>
+        <!-- Filtre mots-clefs -->
+        <div class="kw-filter-bar" id="kwFilterBar">
+            <input type="text" id="kwFilterText" placeholder="Filtrer les mots-clefs…" autocomplete="off" />
+            <div class="filter-chips">
+                <button class="chip active" data-filter="all">Tous</button>
+                <button class="chip" data-filter="todo">Sans votre expertise</button>
+                <button class="chip" data-filter="done">Avec votre expertise</button>
+                <button class="chip" data-filter="pos">Positifs</button>
+                <button class="chip" data-filter="neg">Négatifs</button>
+            </div>
+            <span class="kw-filter-count" id="kwFilterCount"></span>
+        </div>
+
         <div class="kw-grid" id="kwGrid"></div>
     </div>
 
@@ -186,7 +199,8 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
     acIndex = -1,
     kwAcTimer = null,
     kwAcIndex = -1,
-    sortState = { field: null, dir: 1 };
+    sortState  = { field: null, dir: 1 },
+    filterState = { text: '', status: 'all' };
 
 
 // ──────────────────────────────────────────────
@@ -400,6 +414,59 @@ document.getElementById('kwSearchInput').addEventListener('blur', () => {
 document.getElementById('btnSortTitle').addEventListener('click', () => sortKeywords('title'));
 document.getElementById('btnSortRank').addEventListener('click',  () => sortKeywords('rank'));
 
+// ── FILTER ──
+document.getElementById('kwFilterText').addEventListener('input', function() {
+    filterState.text = this.value;
+    applyFilter();
+});
+
+document.querySelectorAll('#kwFilterBar .chip').forEach(btn => {
+    btn.addEventListener('click', function() {
+        filterState.status = this.dataset.filter;
+        document.querySelectorAll('#kwFilterBar .chip').forEach(b => {
+            b.className = 'chip'; // reset
+        });
+        this.classList.add('active' + (filterState.status !== 'all' ? '-' + filterState.status : ''));
+        applyFilter();
+    });
+});
+
+// ──────────────────────────────────────────────
+// FILTER KEYWORDS
+// ──────────────────────────────────────────────
+function applyFilter() {
+    const text = filterState.text.trim().toLowerCase();
+    let visible = 0;
+    keywords.forEach(kw => {
+        const card = document.getElementById('kw-card-' + kw.value_resource_id);
+        if (!card) return;
+        const matchText   = !text || (kw.display_title || '').toLowerCase().includes(text);
+        let   matchStatus = true;
+        switch (filterState.status) {
+            case 'todo': matchStatus = !kw.hasExpert;  break;
+            case 'done': matchStatus =  kw.hasExpert;  break;
+            case 'pos':  matchStatus =  kw.rank > 0;   break;
+            case 'neg':  matchStatus =  kw.rank <= 0;  break;
+        }
+        const show = matchText && matchStatus;
+        card.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    const countEl = document.getElementById('kwFilterCount');
+    countEl.textContent = visible < keywords.length
+        ? `${visible} / ${keywords.length} affiché${visible > 1 ? 's' : ''}`
+        : '';
+}
+
+function resetFilter() {
+    filterState.text   = '';
+    filterState.status = 'all';
+    document.getElementById('kwFilterText').value = '';
+    document.querySelectorAll('#kwFilterBar .chip').forEach(b => b.className = 'chip');
+    document.querySelector('#kwFilterBar .chip[data-filter="all"]').classList.add('active');
+    document.getElementById('kwFilterCount').textContent = '';
+}
+
 // ──────────────────────────────────────────────
 // ADD KEYWORD
 // ──────────────────────────────────────────────
@@ -477,6 +544,9 @@ async function loadPerson(personId) {
     if (!personId || isNaN(personId)) { toast('Sélectionnez une personne dans la liste', 'err'); return; }
     if (!cfg.keyId) { toast('Configurez d\'abord l\'API', 'err'); openSettings(); return; }
 
+    // Réinitialise le filtre uniquement si la personne change
+    if (!person || person['o:id'] !== parseInt(personId)) resetFilter();
+
     setLoading(true);
     keywords = [];
     pendingCount = 0;
@@ -525,7 +595,7 @@ async function loadPerson(personId) {
             // 4. Construire la liste des mots-clefs et des expertises
             keywords = conceptVals.map(c => {
                 c.expertises = existingExpertises.filter(e=>e["valo:expertise"][0].value_resource_id==c.value_resource_id);
-                console.log(c.value_resource_id);
+                //console.log(c.value_resource_id);
                 formatKeyword(c);
                 return c;
             });
@@ -607,6 +677,9 @@ function renderKeywords() {
     
     document.getElementById('kwSection').classList.remove('hidden');
     document.getElementById('saveBar').classList.remove('hidden');
+
+    // Applique le filtre actif après rendu
+    applyFilter();
 }
 
 function renderExpertise(kw){
