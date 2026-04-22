@@ -169,9 +169,6 @@ d3.select("#btnCloseSettings").on("click",closeSettings);
 
 const aUrl = new appUrl({'url':new URL(document.location)});
 
-let a = new auth(pa);
-await a.getUser();//récupère l'utilisateur lié à la clef d'API 
-
 // ──────────────────────────────────────────────
 // CONFIGURATION
 // ──────────────────────────────────────────────
@@ -200,13 +197,13 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
     kwAcTimer = null,
     kwAcIndex = -1,
     sortState  = { field: null, dir: 1 },
-    filterState = { text: '', status: 'all' };
-
+    filterState = { text: '', status: 'all' },
+    a;
 
 // ──────────────────────────────────────────────
 // INIT
 // ──────────────────────────────────────────────
-(function init() {
+(async function init() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
         try { cfg = { ...DEFAULTS, ...JSON.parse(stored) }; }
@@ -219,6 +216,9 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
         closeSettings(); 
     }
     showSettings();
+    a = new auth(pa);
+    await a.getUser();//récupère l'utilisateur lié à la clef d'API 
+
     if(authorId)loadPerson(authorId);
 
 })();
