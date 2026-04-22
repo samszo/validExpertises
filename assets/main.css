@@ -187,8 +187,22 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: .9rem;
+            flex-wrap: wrap;
+            gap: .5rem;
         }
-        .kw-header h2 { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+        .kw-header h2 { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; flex-shrink: 0; }
+        .kw-toolbar {
+            display: flex;
+            align-items: center;
+            gap: .6rem;
+            flex: 1;
+            margin: 0 .8rem;
+            min-width: 0;
+            overflow: visible;
+        }
+        .kw-sort-btns { display: flex; gap: .4rem; flex-shrink: 0; }
+        .btn-sort { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+        .btn-sort.active { background: var(--primary); color: #fff; border-color: var(--primary); }
         .kw-count {
             background: var(--primary);
             color: #fff;

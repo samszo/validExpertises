@@ -109,6 +109,16 @@
     <div id="kwSection" class="hidden">
         <div class="kw-header">
             <h2>Mots-clefs &amp; expertises</h2>
+            <div class="kw-toolbar">
+                <div class="autocomplete-wrap">
+                    <input type="text" id="kwSearchInput" placeholder="Ajouter un mot-clef…" autocomplete="off" />
+                    <div id="kwAcDropdown" class="autocomplete-dropdown hidden"></div>
+                </div>
+                <div class="kw-sort-btns">
+                    <button class="btn btn-sm btn-sort" id="btnSortTitle">↕ Titre</button>
+                    <button class="btn btn-sm btn-sort" id="btnSortRank">↕ Rang</button>
+                </div>
+            </div>
             <span class="kw-count" id="kwCount"></span>
         </div>
         <div class="kw-grid" id="kwGrid"></div>
@@ -172,7 +182,10 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
     creator = null,
     selectedPersonId = null,
     acTimer = null,
-    acIndex = -1;
+    acIndex = -1,
+    kwAcTimer = null,
+    kwAcIndex = -1,
+    sortState = { field: null, dir: 1 };
 
 
 // ──────────────────────────────────────────────
@@ -327,6 +340,119 @@ document.getElementById('personSearchInput').addEventListener('blur', () => {
 });
 
 // ──────────────────────────────────────────────
+// KEYWORD AUTOCOMPLETE (resource_class_id=157)
+// ──────────────────────────────────────────────
+document.getElementById('kwSearchInput').addEventListener('input', function() {
+    clearTimeout(kwAcTimer);
+    const query = this.value;
+    const dropdown = document.getElementById('kwAcDropdown');
+    if (!query.trim()) { dropdown.classList.add('hidden'); return; }
+    kwAcTimer = setTimeout(async () => {
+        try {
+            const items = await apiGet('items', { resource_class_id: 157, search: query.trim() });
+            kwAcIndex = -1;
+            if (!items.length) { dropdown.classList.add('hidden'); return; }
+            dropdown.innerHTML = items.map(item => {
+                const label = getLabel(item);
+                const id = item['o:id'];
+                return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
+                            <span>${esc(label)}</span><span class="ac-id">#${id}</span>
+                        </div>`;
+            }).join('');
+            dropdown.querySelectorAll('.autocomplete-item').forEach(el => {
+                el.addEventListener('mousedown', () => {
+                    addKeyword(parseInt(el.dataset.id), el.dataset.label);
+                });
+            });
+            dropdown.classList.remove('hidden');
+        } catch(e) { /* ignore autocomplete errors */ }
+    }, 280);
+});
+
+document.getElementById('kwSearchInput').addEventListener('keydown', function(e) {
+    const dropdown = document.getElementById('kwAcDropdown');
+    const items = dropdown.querySelectorAll('.autocomplete-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        kwAcIndex = Math.min(kwAcIndex + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('ac-active', i === kwAcIndex));
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        kwAcIndex = Math.max(kwAcIndex - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('ac-active', i === kwAcIndex));
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const active = dropdown.querySelector('.ac-active') || items[0];
+        if (active) addKeyword(parseInt(active.dataset.id), active.dataset.label);
+    } else if (e.key === 'Escape') {
+        dropdown.classList.add('hidden');
+    }
+});
+
+document.getElementById('kwSearchInput').addEventListener('blur', () => {
+    setTimeout(() => document.getElementById('kwAcDropdown').classList.add('hidden'), 150);
+});
+
+document.getElementById('btnSortTitle').addEventListener('click', () => sortKeywords('title'));
+document.getElementById('btnSortRank').addEventListener('click',  () => sortKeywords('rank'));
+
+// ──────────────────────────────────────────────
+// ADD KEYWORD
+// ──────────────────────────────────────────────
+async function addKeyword(conceptId, conceptLabel) {
+    if (!person) { toast('Chargez d\'abord une personne', 'err'); return; }
+    const existing = person[cfg.personPropExp] || [];
+    if (existing.find(v => v.value_resource_id == conceptId)) {
+        toast('Ce mot-clef est déjà présent', 'err');
+        return;
+    }
+    try {
+        setLoading(true);
+        document.getElementById('kwSearchInput').value = '';
+        document.getElementById('kwAcDropdown').classList.add('hidden');
+        await a.omk.updateRessource(person['o:id'], { [cfg.personPropExp]: { rid: conceptId } });
+        await loadPerson(person['o:id']);
+        toast(`« ${conceptLabel} » ajouté`, 'ok');
+    } catch(e) {
+        toast('Erreur : ' + e.message, 'err');
+        setLoading(false);
+    }
+}
+
+// ──────────────────────────────────────────────
+// SORT KEYWORDS
+// ──────────────────────────────────────────────
+function sortKeywords(field) {
+    if (sortState.field === field) {
+        sortState.dir *= -1;
+    } else {
+        sortState.field = field;
+        sortState.dir = 1;
+    }
+    keywords.sort((a, b) => {
+        if (field === 'title') {
+            return sortState.dir * (a.display_title || '').localeCompare(b.display_title || '', 'fr');
+        } else {
+            return sortState.dir * (a.rank - b.rank);
+        }
+    });
+    updateSortButtons();
+    renderKeywords();
+}
+
+function updateSortButtons() {
+    const tBtn = document.getElementById('btnSortTitle');
+    const rBtn = document.getElementById('btnSortRank');
+    tBtn.classList.toggle('active', sortState.field === 'title');
+    rBtn.classList.toggle('active', sortState.field === 'rank');
+    tBtn.textContent = sortState.field === 'title'
+        ? (sortState.dir > 0 ? '↑ Titre' : '↓ Titre') : '↕ Titre';
+    rBtn.textContent = sortState.field === 'rank'
+        ? (sortState.dir > 0 ? '↑ Rang' : '↓ Rang') : '↕ Rang';
+}
+
+// ──────────────────────────────────────────────
 // LOAD PERSON
 // ──────────────────────────────────────────────
 async function loadPerson(personId) {
@@ -430,6 +556,18 @@ function formatExpertise(e){
 // ──────────────────────────────────────────────
 function renderKeywords() {
     if (!keywords.length) { showEmpty(); return; }
+
+    // Ré-applique le tri actif si défini
+    if (sortState.field) {
+        keywords.sort((a, b) => {
+            if (sortState.field === 'title') {
+                return sortState.dir * (a.display_title || '').localeCompare(b.display_title || '', 'fr');
+            } else {
+                return sortState.dir * (a.rank - b.rank);
+            }
+        });
+        updateSortButtons();
+    }
 
     document.getElementById('emptyState').classList.add('hidden');
     document.getElementById('kwCount').textContent = `${keywords.length} mot${keywords.length > 1 ? 's' : ''}`;
