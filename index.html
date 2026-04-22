@@ -216,8 +216,6 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
         closeSettings(); 
     }
     showSettings();
-    a = new auth(pa);
-    await a.getUser();//récupère l'utilisateur lié à la clef d'API 
 
     if(authorId)loadPerson(authorId);
 
