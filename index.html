@@ -171,7 +171,8 @@ const DEFAULTS = {
     personTypeAllow:  pa.personTypeAllow,
     personPropExp:  pa.personPropExp,
     rankProp:   'curation:rank',
-    idClassPerson : 0
+    idClassPerson : 0,
+    idClassKW : 0
 };
 let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,   // Omeka S item o:id for dcterms:creator
     authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,   // Omeka S item o:id for personne to valid
@@ -215,6 +216,7 @@ function showSettings(){
     creator = a.omk.getItem(creatorId);
     d3.select("#creator").text(creator["o:title"] ? creator["o:title"] : "");
     cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
+    cfg.idClassKW = a.omk.getClassByTerm("skos:Concept")["o:id"];
 
 }
 
@@ -257,6 +259,7 @@ async function saveSettings() {
     );
     await a.getUser();//récupère l'utilisateur lié à la clef d'API 
     cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
+    cfg.idClassKW = a.omk.getClassByTerm("skos:Concept")["o:id"];
 
     showSettings();
 
@@ -349,7 +352,7 @@ document.getElementById('kwSearchInput').addEventListener('input', function() {
     if (!query.trim()) { dropdown.classList.add('hidden'); return; }
     kwAcTimer = setTimeout(async () => {
         try {
-            const items = await apiGet('items', { resource_class_id: 157, search: query.trim() });
+            const items = a.omk.searchItems(`property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassKW}`);
             kwAcIndex = -1;
             if (!items.length) { dropdown.classList.add('hidden'); return; }
             dropdown.innerHTML = items.map(item => {
@@ -403,7 +406,7 @@ document.getElementById('btnSortRank').addEventListener('click',  () => sortKeyw
 async function addKeyword(conceptId, conceptLabel) {
     if (!person) { toast('Chargez d\'abord une personne', 'err'); return; }
     const existing = person[cfg.personPropExp] || [];
-    if (existing.find(v => v.value_resource_id == conceptId)) {
+    if (existing.find(v => v.display_title == conceptLabel)) {
         toast('Ce mot-clef est déjà présent', 'err');
         return;
     }
@@ -412,7 +415,16 @@ async function addKeyword(conceptId, conceptLabel) {
         document.getElementById('kwSearchInput').value = '';
         document.getElementById('kwAcDropdown').classList.add('hidden');
         await a.omk.updateRessource(person['o:id'], { [cfg.personPropExp]: { rid: conceptId } });
+        let exp = {
+            'value_resource_id':conceptId,
+            'display_title':conceptLabel,
+            'rank':"100"
+            },    
+            data = getExpertiseValues(exp,false,true),
+            //création de l'item    
+            ne = await a.omk.createItem(data);
         await loadPerson(person['o:id']);
+        sortKeywords('rank',-1);
         toast(`« ${conceptLabel} » ajouté`, 'ok');
     } catch(e) {
         toast('Erreur : ' + e.message, 'err');
@@ -423,12 +435,17 @@ async function addKeyword(conceptId, conceptLabel) {
 // ──────────────────────────────────────────────
 // SORT KEYWORDS
 // ──────────────────────────────────────────────
-function sortKeywords(field) {
-    if (sortState.field === field) {
-        sortState.dir *= -1;
-    } else {
-        sortState.field = field;
-        sortState.dir = 1;
+function sortKeywords(field,dir=false) {
+    if(dir){
+            sortState.field = field;
+            sortState.dir = dir;
+    }else{
+        if (sortState.field === field) {
+            sortState.dir *= -1;
+        } else {
+            sortState.field = field;
+            sortState.dir = 1;
+        }
     }
     keywords.sort((a, b) => {
         if (field === 'title') {
@@ -508,6 +525,7 @@ async function loadPerson(personId) {
             // 4. Construire la liste des mots-clefs et des expertises
             keywords = conceptVals.map(c => {
                 c.expertises = existingExpertises.filter(e=>e["valo:expertise"][0].value_resource_id==c.value_resource_id);
+                console.log(c.value_resource_id);
                 formatKeyword(c);
                 return c;
             });
@@ -520,14 +538,15 @@ async function loadPerson(personId) {
         toast('Erreur : ' + e.message, 'err');
         console.error(e);
     } finally {
+        sortKeywords('rank',-1);
         setLoading(false);
     }
 }
 
 function formatKeyword(c){
-    c.expertises.unshift(c["@annotation"]);
     c.hasExpert=false;
     //calcul les expertises
+    if(c["@annotation"])c.expertises.unshift(c["@annotation"]);
     c.rank = d3.sum(c.expertises, e => {
         formatExpertise(e);
         if(e.creatorId==cfg.creatorId)c.hasExpert=true;
@@ -621,9 +640,9 @@ function renderExpertise(kw){
     barButton.append("button").attr("id",d=>'btnDelete'+d.value_resource_id).attr("class",d=>"btn btn-danger"+(d.hasExpert?"":" hidden")).style("float","right").text("Supprimer").on('click',deleteExpertise)
 }
 
-function getExpertiseValues(d,update=false){
+function getExpertiseValues(d,update=false,create=false){
     console.log(d);    
-    let rank = document.getElementById(`rv-${d.value_resource_id+"-"+cfg.creatorId}`).innerText,
+    let rank = create ? d.rank : document.getElementById(`rv-${d.value_resource_id+"-"+cfg.creatorId}`).innerText,
         titre = `Expertise - ${d.display_title} = ${rank} - pour ${person["o:title"]} fait par ${creator["o:title"]} le ${new Date().toLocaleDateString()}`,
         data = {
         'o:resource_template':'Expertise',
