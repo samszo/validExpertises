@@ -3,7 +3,7 @@ export const pa = {
         apiOmk:'https://valorisation.humanum-p8.fr/api/',
         ident: 'YYT4dJSyzB3x30eeCU3V3eloXhWXBIVa',
         key: '',
-        creatorId:'7457',
+        creatorId:'',
         personTypeAllow:'valo:EnseignantChercheur',
         personPropExp:'skos:hasTopConcept',
         "navbar":null    

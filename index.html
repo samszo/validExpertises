@@ -61,6 +61,8 @@
             <div class="form-hint">Terme de la propriété utilisée pour stocker la valeur d'expertise</div>
         </div>
 
+        <div id="cfgErrors" class="cfg-errors hidden"></div>
+
         <div class="modal-actions">
             <button id="btnCloseSettings" class="btn" style="background:var(--bg);color:var(--text)" >Annuler</button>
             <button id="btnSaveSettings" class="btn btn-primary" >Enregistrer</button>
@@ -173,19 +175,19 @@ const aUrl = new appUrl({'url':new URL(document.location)});
 // CONFIGURATION
 // ──────────────────────────────────────────────
 const STORAGE_KEY = 'validExpertises_cfg';
-const DEFAULTS = {
-    apiBase:    pa.apiOmk,
-    keyId:      pa.ident,
-    keyCred:    pa.key,
-    propMail:    pa.mail,
-    personTypeAllow:  pa.personTypeAllow,
-    personPropExp:  pa.personPropExp,
-    rankProp:   'curation:rank',
-    idClassPerson : 0,
-    idClassKW : 0
-};
-let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,   // Omeka S item o:id for dcterms:creator
-    authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,   // Omeka S item o:id for personne to valid
+let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,   // Omeka S item o:id for personne to valid
+    DEFAULTS = {
+        apiBase:    pa.apiOmk,
+        keyId:      pa.ident,
+        keyCred:    pa.key,
+        propMail:    pa.mail,
+        personTypeAllow:  pa.personTypeAllow,
+        personPropExp:  pa.personPropExp,
+        rankProp:   'curation:rank',
+        creatorId:aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,
+        idClassPerson : 0,
+        idClassKW : 0
+    },
     cfg = { ...DEFAULTS },
     person       = null,   // current item JSON
     keywords     = [],     // [{id, label, rank, savedRank, annotationId, valueRef}]
@@ -213,10 +215,7 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
     openSettings();
     if (cfg.keyCred){
         saveSettings();
-        closeSettings(); 
     }
-    showSettings();
-
     if(authorId)loadPerson(authorId);
 
 })();
@@ -224,12 +223,6 @@ let creatorId = aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa
 function showSettings(){
     d3.select(".personTypeAllowCode").html(cfg.personTypeAllow);
     d3.select(".personPropExp").html(cfg.personPropExp);
-
-    creator = a.omk.getItem(creatorId);
-    d3.select("#creator").text(creator["o:title"] ? creator["o:title"] : "");
-    cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
-    cfg.idClassKW = a.omk.getClassByTerm("skos:Concept")["o:id"];
-
 }
 
 
@@ -246,20 +239,68 @@ function openSettings() {
     document.getElementById('cfgPersonTypeAllow').value = cfg.personTypeAllow;
     document.getElementById('cfgPersonPropExp').value = cfg.personPropExp;
 
+    // Réinitialise les erreurs à chaque ouverture
+    document.querySelectorAll('#settingsOverlay .input-error')
+            .forEach(el => el.classList.remove('input-error'));
+    const errEl = document.getElementById('cfgErrors');
+    errEl.classList.add('hidden');
+    errEl.innerHTML = '';
+
     document.getElementById('settingsOverlay').classList.add('open');
 }
+
+// Efface l'erreur d'un champ dès que l'utilisateur le modifie
+document.querySelectorAll('#settingsOverlay input').forEach(input => {
+    input.addEventListener('input', function() {
+        this.classList.remove('input-error');
+        if (!document.querySelector('#settingsOverlay .input-error')) {
+            document.getElementById('cfgErrors').classList.add('hidden');
+        }
+    });
+});
 function closeSettings() {
     document.getElementById('settingsOverlay').classList.remove('open');
 }
 async function saveSettings() {
-    cfg.apiBase   = (document.getElementById('cfgApiBase').value || '').trim().replace(/\/$/, '');
-    cfg.propMail = (document.getElementById('cfgPropMail').value || '').trim().replace(/\/$/, '');
-    cfg.keyId     = document.getElementById('cfgKeyId').value.trim();
-    cfg.keyCred   = document.getElementById('cfgKeyCred').value.trim();
-    cfg.creatorId = document.getElementById('cfgCreatorId').value.trim();
-    cfg.rankProp  = document.getElementById('cfgRankProp').value.trim() || 'curation:rank';
-    cfg.personTypeAllow = document.getElementById('cfgPersonTypeAllow').value.trim();
-    cfg.personPropExp = document.getElementById('cfgPersonPropExp').value.trim();
+    // ── Réinitialise les erreurs
+    const errEl = document.getElementById('cfgErrors');
+    document.querySelectorAll('#settingsOverlay .input-error')
+            .forEach(el => el.classList.remove('input-error'));
+    errEl.classList.add('hidden');
+    errEl.innerHTML = '';
+
+    // ── Lecture des valeurs
+    const vals = {
+        apiBase:         (document.getElementById('cfgApiBase').value         || '').trim().replace(/\/$/, ''),
+        propMail:        (document.getElementById('cfgPropMail').value        || '').trim(),
+        keyId:            document.getElementById('cfgKeyId').value.trim(),
+        keyCred:          document.getElementById('cfgKeyCred').value.trim(),
+        creatorId:        document.getElementById('cfgCreatorId').value.trim(),
+        rankProp:        (document.getElementById('cfgRankProp').value.trim() || 'curation:rank'),
+        personTypeAllow:  document.getElementById('cfgPersonTypeAllow').value.trim(),
+        personPropExp:    document.getElementById('cfgPersonPropExp').value.trim(),
+    };
+
+    // ── Validation des champs obligatoires
+    const required = [
+        { id: 'cfgApiBase',         val: vals.apiBase,         label: 'URL de base de l\'API' },
+        { id: 'cfgKeyId',           val: vals.keyId,           label: 'key_identity' },
+        { id: 'cfgKeyCred',         val: vals.keyCred,         label: 'key_credential' },
+        { id: 'cfgCreatorId',       val: vals.creatorId,       label: 'ID de l\'évaluateur' },
+        { id: 'cfgPersonTypeAllow', val: vals.personTypeAllow, label: 'Type de personne autorisé' },
+        { id: 'cfgPersonPropExp',   val: vals.personPropExp,   label: 'Propriété des expertises' },
+    ];
+    const missing = required.filter(f => !f.val);
+    if (missing.length) {
+        missing.forEach(f => document.getElementById(f.id).classList.add('input-error'));
+        errEl.innerHTML = `<strong>Champs obligatoires manquants&nbsp;:</strong>
+            <ul>${missing.map(f => `<li>${f.label}</li>`).join('')}</ul>`;
+        errEl.classList.remove('hidden');
+        return; // ne pas fermer ni sauvegarder
+    }
+
+    // ── Sauvegarde
+    Object.assign(cfg, vals);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));    
 
     //met à jour les données omk
@@ -272,6 +313,8 @@ async function saveSettings() {
     await a.getUser();//récupère l'utilisateur lié à la clef d'API 
     cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
     cfg.idClassKW = a.omk.getClassByTerm("skos:Concept")["o:id"];
+    creator = a.omk.getItem(cfg.creatorId);
+    d3.select("#creator").text(creator["o:title"] ? creator["o:title"] : "");
 
     showSettings();
 

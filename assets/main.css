@@ -109,6 +109,26 @@
             display: flex; gap: .7rem; justify-content: flex-end; margin-top: 1.4rem;
         }
 
+        /* ---- SETTINGS ERRORS ---- */
+        .cfg-errors {
+            background: #fdecea;
+            border: 1px solid var(--danger);
+            border-radius: 6px;
+            padding: .55rem .85rem;
+            margin-top: .6rem;
+            font-size: .82rem;
+            color: var(--danger);
+            line-height: 1.5;
+        }
+        .cfg-errors strong { display: block; margin-bottom: .2rem; }
+        .cfg-errors ul { margin: 0; padding-left: 1.1rem; }
+        .cfg-errors li { margin: .1rem 0; }
+        .input-error {
+            border-color: var(--danger) !important;
+            background: #fff5f5 !important;
+        }
+        .input-error:focus { box-shadow: 0 0 0 2px rgba(231,76,60,.2); }
+
         /* ---- MAIN CONTAINER ---- */
         .container { max-width: 960px; margin: 0 auto; padding: 1.4rem; }
 
