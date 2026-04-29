@@ -5,6 +5,6 @@ export const pa = {
         key: '',
         creatorId:'',
         personTypeAllow:'valo:EnseignantChercheur',
-        personPropExp:'skos:hasTopConcept',
+        personPropExp:'skos:hasTopConcept,dcterms:subject',
         "navbar":null    
 }

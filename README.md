@@ -2,7 +2,7 @@
 
 Application web front-end pour visualiser, comparer et valider des expertises autour d'une personne dans Omeka S.
 
-L'interface permet de rechercher une personne Omeka S par autocompletion, de charger ses concepts d'expertise, d'afficher les évaluations existantes et d'ajouter une expertise pour l'évaluateur courant via l'API Omeka S.
+L'interface permet de parcourir les Enseignants-Chercheurs par laboratoire, de rechercher une personne par autocompletion, de charger ses concepts d'expertise, d'afficher les évaluations existantes et d'ajouter une expertise pour l'évaluateur courant via l'API Omeka S.
 
 ## Guide operateur
 
@@ -11,16 +11,19 @@ Pour une version courte imprimable, voir [FICHE_OPERATEUR_1_PAGE.md](FICHE_OPERA
 
 ## Fonctionnalites
 
+- Parcours des Enseignants-Chercheurs par laboratoire avec pagination.
 - Recherche d'une personne Omeka S par autocompletion.
 - Chargement direct d'une personne via le parametre d'URL `idAuthor`.
 - Verification du type de la personne (type autorise configurable).
-- Recuperation des concepts d'expertise relies a la personne.
+- Recuperation des concepts d'expertise relies a la personne depuis plusieurs proprietes configurables.
+- Affichage de la propriete source de chaque mot-clef.
 - Affichage des expertises existantes (annotations et items Expertise lies a la personne).
+- Auto-masquage des mots-clefs peu pertinents (score < 5) au-dela des 20 premiers, avec option "Tout afficher".
 - Ajustement de la valeur d'expertise via slider (`-100` a `+100`).
 - Ajout d'un mot-clef par autocompletion avant evaluation.
 - Tri des mots-clefs par titre ou par rang.
 - Filtrage des mots-clefs par texte, etat de saisie, polarite positive ou negative.
-- Creation d'un item Expertise pour l'evaluateur courant.
+- Creation, modification et suppression d'un item Expertise pour l'evaluateur courant.
 - Parametrage sauvegarde en local (`localStorage`).
 
 ## Architecture
@@ -45,7 +48,7 @@ validExpertises/
 - Un serveur web local (Apache, Nginx, `python -m http.server`, etc.).
 - Une instance Omeka S accessible en HTTP(S).
 - Une cle API Omeka S (`key_identity`, `key_credential`) avec droits de lecture/ecriture sur les ressources ciblees.
-- Les vocabulaires/proprietes utilises dans votre Omeka S (ex. `skos:hasTopConcept`, `curation:rank`, `dcterms:creator`, `dcterms:source`, `valo:expertise`).
+- Les vocabulaires/proprietes utilises dans votre Omeka S (ex. `skos:hasTopConcept`, `dcterms:subject`, `curation:rank`, `dcterms:creator`, `dcterms:source`, `valo:expertise`, `valo:Laboratoire`).
 - D3 charge localement via `assets/js/d3.min.js`.
 
 ## Installation rapide
@@ -75,25 +78,26 @@ Parametres utilises:
 - `key` : `key_credential` Omeka S.
 - `creatorId` : ID de l'item Omeka S representant l'evaluateur.
 - `personTypeAllow` : type d'item autorise pour la personne (ex. `valo:EnseignantChercheur`).
-- `personPropExp` : propriete listant les expertises de la personne (ex. `skos:hasTopConcept`).
+- `personPropExp` : liste de proprietes separees par des virgules listant les mots-clefs de la personne (ex. `skos:hasTopConcept,dcterms:subject`).
 - `rankProp` : propriete Omeka S stockant la valeur d'expertise (par defaut `curation:rank`).
 
 Important:
 
 - Les parametres enregistres via l'UI sont stockes dans `localStorage` avec la cle `validExpertises_cfg`.
 - Les parametres dans `authParams.js` servent de valeur par defaut.
-- L'application charge aussi les classes Omeka S necessaires a la recherche de personnes et de mots-clefs.
+- L'application charge aussi les classes Omeka S necessaires a la recherche de personnes, de mots-clefs et de laboratoires.
 
 ## Utilisation
 
 1. Ouvrir Parametres et verifier les informations API Omeka S.
 2. Verifier que le nom de l'evaluateur s'affiche dans l'en-tete.
-3. Rechercher une personne dans le champ principal, puis la selectionner dans la liste d'autocompletion.
-4. Verifier les cartes d'expertise affichees.
-5. Optionnel: ajouter un mot-clef via le champ `Ajouter un mot-clef...`.
-6. Ajuster la valeur avec le slider sur chaque expertise.
-7. Utiliser `Ajouter` pour creer votre expertise sur le mot-clef choisi.
-8. Utiliser les outils de tri et de filtre pour controler les expertises deja traitees.
+3. Selectionner un laboratoire dans le menu deroulant pour parcourir ses Enseignants-Chercheurs, ou rechercher directement une personne via le champ d'autocompletion.
+4. Cliquer sur un EC pour charger sa fiche.
+5. Verifier les cartes d'expertise affichees.
+6. Optionnel: ajouter un mot-clef via le champ `Ajouter un mot-clef...`.
+7. Ajuster la valeur avec le slider sur chaque expertise.
+8. Utiliser `Ajouter` pour creer votre expertise, `Modifier` pour la mettre a jour, `Supprimer` pour la retirer.
+9. Utiliser les outils de tri et de filtre pour controler les expertises deja traitees.
 
 ## Parametres URL
 
@@ -115,15 +119,13 @@ http://localhost:8080/?idCreator=7457&idAuthor=123
 - Recherche des items Expertise relies a la personne:
 	`GET /items?...property=dcterms:source...&resource_template_id[]=...`.
 - Creation d'un item Expertise: via `a.omk.createItem(...)`.
-- Sauvegarde de l'annotation/rang:
-	- `PATCH /value-annotations/{id}` si annotation existante.
-	- `PATCH /items/{id}` (partiel) sinon.
+- Modification d'un item Expertise: via `a.omk.updateRessource(...)`.
+- Suppression d'un item Expertise: via `a.omk.deleteItem(...)`.
 
 ## Etat actuel et limites
 
-- Le parcours principal documente et visible dans l'UI est l'ajout d'expertise; les fonctions `updateExpertise` et `deleteExpertise` restent presentes mais non implementees.
-- Une partie de la logique de `saveAll` semble encore en transition (usage de `savedRank`, index de statut, etc.).
 - La cle API ne doit pas rester en dur dans un depot public.
+- Les requetes de lecture utilisent des XMLHttpRequest synchrones (voir issue #XX pour le suivi).
 
 ## Securite
 
@@ -136,6 +138,7 @@ http://localhost:8080/?idCreator=7457&idAuthor=123
 - Erreur HTTP sur chargement: verifier `apiOmk`, CORS, et les cles API.
 - Aucune expertise affichee: verifier la propriete `personPropExp` et le type `personTypeAllow`.
 - Impossible de sauvegarder: verifier les droits d'ecriture de la cle API et l'existence des proprietes/vocabulaires cibles.
+- Liste de laboratoires incomplete: verifier que la classe `valo:Laboratoire` est bien presente dans le vocabulaire Omeka S.
 
 ## Licence
 

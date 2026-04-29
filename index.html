@@ -46,9 +46,9 @@
             <div class="form-hint">Type d'Item autorisé pour la personne</div>
         </div>
         <div class="form-group">
-            <label>Personne — propriété des expertises</label>
-            <input type="text" id="cfgPersonPropExp" placeholder="skos:hasTopConcept"  />
-            <div class="form-hint">Propriété pour le la liste des expertises</div>
+            <label>Personne — propriétés des expertises</label>
+            <input type="text" id="cfgPersonPropExp" placeholder="skos:hasTopConcept,dcterms:subject"  />
+            <div class="form-hint">Propriétés pour la liste des expertises, séparées par des virgules (ex. <code>skos:hasTopConcept,dcterms:subject</code>)</div>
         </div>
         <div class="form-group">
             <label>Évaluateur — ID item Omeka S (dcterms:creator)</label>
@@ -97,7 +97,7 @@
     <!-- Vide -->
     <div id="emptyState" class="empty-state hidden">
         <div class="empty-icon">&#128269;</div>
-        <p>Aucun concept trouvé via <code class="personPropExp">skos:hasTopConcept</code> pour cette personne.</p>
+        <p>Aucun concept trouvé via <code class="personPropExp"></code> pour cette personne.</p>
     </div>
 
     <!-- type pas autorisé -->
@@ -105,6 +105,24 @@
         <div class="empty-icon">&#128269;</div>
         <p>Le type de l'item <span id="noallowTypeCode">skos:hasTopConcept</span> trouvé 
             ne correspond pas à celui autorisé <span class="personTypeAllowCode">skos:hasTopConcept</span>.</p>
+    </div>
+
+    <!-- Browse ECs par labo -->
+    <div id="browseSection" class="hidden">
+        <div class="browse-header">
+            <h2>Enseignants-Chercheurs</h2>
+            <div class="browse-filters">
+                <select id="labSelect">
+                    <option value="">— Sélectionner un laboratoire —</option>
+                </select>
+            </div>
+        </div>
+        <div id="browseList" class="browse-list"></div>
+        <div id="browsePagination" class="browse-pagination hidden">
+            <button id="btnBrowsePrev" class="btn btn-sm">&#8592; Précédent</button>
+            <span id="browsePaginationInfo"></span>
+            <button id="btnBrowseNext" class="btn btn-sm">Suivant &#8594;</button>
+        </div>
     </div>
 
     <!-- Mots-clefs -->
@@ -136,6 +154,18 @@
             <span class="kw-filter-count" id="kwFilterCount"></span>
         </div>
 
+        <!-- Bandeau mots-clefs masqués automatiquement -->
+        <div id="autoHideBanner" class="autohide-banner hidden">
+            <div class="autohide-banner-left">
+                <span class="autohide-banner-icon">&#128065;</span>
+                <div class="autohide-banner-text">
+                    <strong id="autoHideMsg"></strong>
+                    <span> peu pertinents non affichés</span>
+                </div>
+            </div>
+            <button class="btn-show-all" id="btnShowAll">Tout afficher</button>
+        </div>
+
         <div class="kw-grid" id="kwGrid"></div>
     </div>
 
@@ -161,87 +191,99 @@
 <script type="module">
 'use strict';
 
-    import {pa} from './assets/js/authParams.js';
-    import {auth} from './assets/js/auth.js';
-    import {appUrl} from './assets/js/appUrl.js';
+import { pa }     from './assets/js/authParams.js';
+import { auth }   from './assets/js/auth.js';
+import { appUrl } from './assets/js/appUrl.js';
 
-d3.select("#btnOpenSettings").on("click",openSettings);
-d3.select("#btnSaveSettings").on("click",saveSettings);
-d3.select("#btnCloseSettings").on("click",closeSettings);
+// ── Listeners header ──
+d3.select('#btnOpenSettings').on('click', openSettings);
+d3.select('#btnSaveSettings').on('click', saveSettings);
+d3.select('#btnCloseSettings').on('click', closeSettings);
 
-const aUrl = new appUrl({'url':new URL(document.location)});
+const aUrl = new appUrl({ 'url': new URL(document.location) });
+
 
 // ──────────────────────────────────────────────
 // CONFIGURATION
 // ──────────────────────────────────────────────
+
 const STORAGE_KEY = 'validExpertises_cfg';
-let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,   // Omeka S item o:id for personne to valid
+
+let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null, // o:id de la personne à valider (URL param)
     DEFAULTS = {
-        apiBase:    pa.apiOmk,
-        keyId:      pa.ident,
-        keyCred:    pa.key,
-        propMail:    pa.mail,
-        personTypeAllow:  pa.personTypeAllow,
-        personPropExp:  pa.personPropExp,
-        rankProp:   'curation:rank',
-        creatorId:aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,
-        idClassPerson : 0,
-        idClassKW : 0
+        apiBase:         pa.apiOmk,
+        keyId:           pa.ident,
+        keyCred:         pa.key,
+        propMail:        pa.mail,
+        personTypeAllow: pa.personTypeAllow,
+        personPropExp:   pa.personPropExp,
+        rankProp:        'curation:rank',
+        creatorId:       aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,
+        idClassPerson:   0,
+        idClassKW:       0,
+        idClassLab:      0
     },
-    cfg = { ...DEFAULTS },
-    person       = null,   // current item JSON
-    keywords     = [],     // [{id, label, rank, savedRank, annotationId, valueRef}]
-    pendingCount = 0,
-    creator = null,
+    cfg             = { ...DEFAULTS },
+    person          = null,  // item JSON de la personne courante
+    keywords        = [],    // [{display_title, rank, expertises, hasExpert, ...}]
+    pendingCount    = 0,
+    creator         = null,
     selectedPersonId = null,
-    acTimer = null,
-    acIndex = -1,
-    kwAcTimer = null,
-    kwAcIndex = -1,
-    sortState  = { field: null, dir: 1 },
-    filterState = { text: '', status: 'all' },
+    acTimer         = null,
+    acIndex         = -1,
+    kwAcTimer       = null,
+    kwAcIndex       = -1,
+    sortState       = { field: null, dir: 1 },
+    filterState     = { text: '', status: 'all' },
+    autoHideLow     = true,
+    labs            = [],
+    browseLabId     = null,
+    browsePage      = 1,
     a;
+
 
 // ──────────────────────────────────────────────
 // INIT
 // ──────────────────────────────────────────────
+
 (async function init() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
         try { cfg = { ...DEFAULTS, ...JSON.parse(stored) }; }
-        catch(e) { /* ignore */ }
+        catch (e) { /* ignore JSON malformé */ }
     }
-    if(aUrl.params.has('idCreator'))cfg.creatorId = aUrl.params.get('idCreator');
+    if (aUrl.params.has('idCreator')) cfg.creatorId = aUrl.params.get('idCreator');
     openSettings();
-    if (cfg.keyCred){
+    if (cfg.keyCred) {
         await saveSettings();
-        if(authorId)loadPerson(authorId);
+        if (authorId) loadPerson(authorId);
     }
-
 })();
 
-function showSettings(){
-    d3.select(".personTypeAllowCode").html(cfg.personTypeAllow);
-    d3.select(".personPropExp").html(cfg.personPropExp);
+function showSettings() {
+    d3.select('.personTypeAllowCode').html(cfg.personTypeAllow);
+    // Affiche les props séparées par " + " dans les spans de l'UI
+    const propsDisplay = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean).join(' + ');
+    d3.selectAll('.personPropExp').html(propsDisplay);
 }
 
 
 // ──────────────────────────────────────────────
 // SETTINGS
 // ──────────────────────────────────────────────
+
 function openSettings() {
-    document.getElementById('cfgApiBase').value  = cfg.apiBase;
-    document.getElementById('cfgPropMail').value  = cfg.propMail;
-    document.getElementById('cfgKeyId').value    = cfg.keyId;
-    document.getElementById('cfgKeyCred').value  = cfg.keyCred;
-    document.getElementById('cfgCreatorId').value = cfg.creatorId;
-    document.getElementById('cfgRankProp').value = cfg.rankProp;
+    document.getElementById('cfgApiBase').value         = cfg.apiBase;
+    document.getElementById('cfgPropMail').value        = cfg.propMail;
+    document.getElementById('cfgKeyId').value           = cfg.keyId;
+    document.getElementById('cfgKeyCred').value         = cfg.keyCred;
+    document.getElementById('cfgCreatorId').value       = cfg.creatorId;
+    document.getElementById('cfgRankProp').value        = cfg.rankProp;
     document.getElementById('cfgPersonTypeAllow').value = cfg.personTypeAllow;
-    document.getElementById('cfgPersonPropExp').value = cfg.personPropExp;
+    document.getElementById('cfgPersonPropExp').value   = cfg.personPropExp;
 
     // Réinitialise les erreurs à chaque ouverture
-    document.querySelectorAll('#settingsOverlay .input-error')
-            .forEach(el => el.classList.remove('input-error'));
+    document.querySelectorAll('#settingsOverlay .input-error').forEach(el => el.classList.remove('input-error'));
     const errEl = document.getElementById('cfgErrors');
     errEl.classList.add('hidden');
     errEl.innerHTML = '';
@@ -249,23 +291,24 @@ function openSettings() {
     document.getElementById('settingsOverlay').classList.add('open');
 }
 
+function closeSettings() {
+    document.getElementById('settingsOverlay').classList.remove('open');
+}
+
 // Efface l'erreur d'un champ dès que l'utilisateur le modifie
 document.querySelectorAll('#settingsOverlay input').forEach(input => {
-    input.addEventListener('input', function() {
+    input.addEventListener('input', function () {
         this.classList.remove('input-error');
         if (!document.querySelector('#settingsOverlay .input-error')) {
             document.getElementById('cfgErrors').classList.add('hidden');
         }
     });
 });
-function closeSettings() {
-    document.getElementById('settingsOverlay').classList.remove('open');
-}
+
 async function saveSettings() {
     // ── Réinitialise les erreurs
     const errEl = document.getElementById('cfgErrors');
-    document.querySelectorAll('#settingsOverlay .input-error')
-            .forEach(el => el.classList.remove('input-error'));
+    document.querySelectorAll('#settingsOverlay .input-error').forEach(el => el.classList.remove('input-error'));
     errEl.classList.add('hidden');
     errEl.innerHTML = '';
 
@@ -283,10 +326,10 @@ async function saveSettings() {
 
     // ── Validation des champs obligatoires
     const required = [
-        { id: 'cfgApiBase',         val: vals.apiBase,         label: 'URL de base de l\'API' },
+        { id: 'cfgApiBase',         val: vals.apiBase,         label: "URL de base de l'API" },
         { id: 'cfgKeyId',           val: vals.keyId,           label: 'key_identity' },
         { id: 'cfgKeyCred',         val: vals.keyCred,         label: 'key_credential' },
-        { id: 'cfgCreatorId',       val: vals.creatorId,       label: 'ID de l\'évaluateur' },
+        { id: 'cfgCreatorId',       val: vals.creatorId,       label: "ID de l'évaluateur" },
         { id: 'cfgPersonTypeAllow', val: vals.personTypeAllow, label: 'Type de personne autorisé' },
         { id: 'cfgPersonPropExp',   val: vals.personPropExp,   label: 'Propriété des expertises' },
     ];
@@ -296,51 +339,63 @@ async function saveSettings() {
         errEl.innerHTML = `<strong>Champs obligatoires manquants&nbsp;:</strong>
             <ul>${missing.map(f => `<li>${f.label}</li>`).join('')}</ul>`;
         errEl.classList.remove('hidden');
-        return; // ne pas fermer ni sauvegarder
+        return;
     }
 
     // ── Sauvegarde
     Object.assign(cfg, vals);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
 
-    //met à jour les données omk
-    a = new auth({mail:cfg.propMail,
-        apiOmk:cfg.apiBase,
-        ident: cfg.keyId,
-        key: cfg.keyCred
-        }
-    );
-    await a.getUser();//récupère l'utilisateur lié à la clef d'API 
-    cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)["o:id"];
-    cfg.idClassKW = a.omk.getClassByTerm("skos:Concept")["o:id"];
+    // ── Initialise la couche Omeka S
+    a = new auth({
+        mail:   cfg.propMail,
+        apiOmk: cfg.apiBase,
+        ident:  cfg.keyId,
+        key:    cfg.keyCred
+    });
+    await a.getUser();
+    cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)['o:id'];
+    cfg.idClassKW     = a.omk.getClassByTerm('skos:Concept')['o:id'];
+    cfg.idClassLab    = a.omk.getClassByTerm('valo:Laboratoire')['o:id'];
     creator = a.omk.getItem(cfg.creatorId);
-    d3.select("#creator").text(creator["o:title"] ? creator["o:title"] : "");
+    d3.select('#creator').text(creator['o:title'] ? creator['o:title'] : '');
+
+    // ── Charge les labos pour le browse
+    labs = a.omk.searchItems(`resource_class_id[]=${cfg.idClassLab}&sort_by=title&sort_order=asc&per_page=1000`) || [];
+    const labSel = document.getElementById('labSelect');
+    labSel.innerHTML = '<option value="">— Sélectionner un laboratoire —</option>'
+        + labs.map(l => `<option value="${l['o:id']}">${esc(getLabel(l))}</option>`).join('');
 
     showSettings();
-
     closeSettings();
     toast('Configuration enregistrée', 'ok');
+
+    if (!person) showBrowse();
 }
+
 
 // ──────────────────────────────────────────────
 // LABEL EXTRACTION
 // ──────────────────────────────────────────────
+
 function getLabel(item) {
     if (item['o:title']) return item['o:title'];
-    for (const p of ['skos:prefLabel','dcterms:title','foaf:name']) {
+    for (const p of ['skos:prefLabel', 'dcterms:title', 'foaf:name']) {
         const v = item[p];
         if (v && v.length && v[0]['@value']) return v[0]['@value'];
     }
     return `Item #${item['o:id']}`;
 }
 
+
 // ──────────────────────────────────────────────
-// PERSON AUTOCOMPLETE
+// AUTOCOMPLETE — PERSONNE
 // ──────────────────────────────────────────────
-document.getElementById('personSearchInput').addEventListener('input', function() {
+
+document.getElementById('personSearchInput').addEventListener('input', function () {
     clearTimeout(acTimer);
     selectedPersonId = null;
-    const query = this.value;
+    const query    = this.value;
     const dropdown = document.getElementById('personAcDropdown');
     if (!query.trim()) { dropdown.classList.add('hidden'); return; }
     acTimer = setTimeout(async () => {
@@ -350,7 +405,7 @@ document.getElementById('personSearchInput').addEventListener('input', function(
             if (!items.length) { dropdown.classList.add('hidden'); return; }
             dropdown.innerHTML = items.map(item => {
                 const label = getLabel(item);
-                const id = item['o:id'];
+                const id    = item['o:id'];
                 return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
                             <span>${esc(label)}</span><span class="ac-id">#${id}</span>
                         </div>`;
@@ -364,13 +419,13 @@ document.getElementById('personSearchInput').addEventListener('input', function(
                 });
             });
             dropdown.classList.remove('hidden');
-        } catch(e) { /* ignore autocomplete errors */ }
+        } catch (e) { /* ignore autocomplete errors */ }
     }, 280);
 });
 
-document.getElementById('personSearchInput').addEventListener('keydown', function(e) {
+document.getElementById('personSearchInput').addEventListener('keydown', function (e) {
     const dropdown = document.getElementById('personAcDropdown');
-    const items = dropdown.querySelectorAll('.autocomplete-item');
+    const items    = dropdown.querySelectorAll('.autocomplete-item');
     if (!items.length) return;
     if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -397,12 +452,14 @@ document.getElementById('personSearchInput').addEventListener('blur', () => {
     setTimeout(() => document.getElementById('personAcDropdown').classList.add('hidden'), 150);
 });
 
+
 // ──────────────────────────────────────────────
-// KEYWORD AUTOCOMPLETE (resource_class_id=157)
+// AUTOCOMPLETE — MOT-CLEF
 // ──────────────────────────────────────────────
-document.getElementById('kwSearchInput').addEventListener('input', function() {
+
+document.getElementById('kwSearchInput').addEventListener('input', function () {
     clearTimeout(kwAcTimer);
-    const query = this.value;
+    const query    = this.value;
     const dropdown = document.getElementById('kwAcDropdown');
     if (!query.trim()) { dropdown.classList.add('hidden'); return; }
     kwAcTimer = setTimeout(async () => {
@@ -412,7 +469,7 @@ document.getElementById('kwSearchInput').addEventListener('input', function() {
             if (!items.length) { dropdown.classList.add('hidden'); return; }
             dropdown.innerHTML = items.map(item => {
                 const label = getLabel(item);
-                const id = item['o:id'];
+                const id    = item['o:id'];
                 return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
                             <span>${esc(label)}</span><span class="ac-id">#${id}</span>
                         </div>`;
@@ -423,13 +480,13 @@ document.getElementById('kwSearchInput').addEventListener('input', function() {
                 });
             });
             dropdown.classList.remove('hidden');
-        } catch(e) { /* ignore autocomplete errors */ }
+        } catch (e) { /* ignore autocomplete errors */ }
     }, 280);
 });
 
-document.getElementById('kwSearchInput').addEventListener('keydown', function(e) {
+document.getElementById('kwSearchInput').addEventListener('keydown', function (e) {
     const dropdown = document.getElementById('kwAcDropdown');
-    const items = dropdown.querySelectorAll('.autocomplete-item');
+    const items    = dropdown.querySelectorAll('.autocomplete-item');
     if (!items.length) return;
     if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -452,29 +509,59 @@ document.getElementById('kwSearchInput').addEventListener('blur', () => {
     setTimeout(() => document.getElementById('kwAcDropdown').classList.add('hidden'), 150);
 });
 
+
+// ──────────────────────────────────────────────
+// LISTENERS — TRI, BROWSE, FILTRES
+// ──────────────────────────────────────────────
+
 document.getElementById('btnSortTitle').addEventListener('click', () => sortKeywords('title'));
 document.getElementById('btnSortRank').addEventListener('click',  () => sortKeywords('rank'));
 
-// ── FILTER ──
-document.getElementById('kwFilterText').addEventListener('input', function() {
+document.getElementById('labSelect').addEventListener('change', function () {
+    browseLabId = this.value ? parseInt(this.value) : null;
+    browsePage  = 1;
+    if (browseLabId) loadBrowsePersons(browseLabId, browsePage);
+    else document.getElementById('browseList').innerHTML = '';
+});
+
+document.getElementById('btnBrowsePrev').addEventListener('click', () => {
+    if (browsePage > 1) { browsePage--; loadBrowsePersons(browseLabId, browsePage); }
+});
+
+document.getElementById('btnBrowseNext').addEventListener('click', () => {
+    if (!document.getElementById('btnBrowseNext').disabled) { browsePage++; loadBrowsePersons(browseLabId, browsePage); }
+});
+
+document.getElementById('btnShowAll').addEventListener('click', () => {
+    autoHideLow = false;
+    renderKeywords();
+});
+
+document.getElementById('kwFilterText').addEventListener('input', function () {
     filterState.text = this.value;
-    applyFilter();
+    // Si l'utilisateur tape, on lève l'auto-masquage pour chercher dans tous les mots-clefs
+    if (this.value.trim().length > 0 && autoHideLow) {
+        autoHideLow = false;
+        renderKeywords();
+    } else {
+        applyFilter();
+    }
 });
 
 document.querySelectorAll('#kwFilterBar .chip').forEach(btn => {
-    btn.addEventListener('click', function() {
+    btn.addEventListener('click', function () {
         filterState.status = this.dataset.filter;
-        document.querySelectorAll('#kwFilterBar .chip').forEach(b => {
-            b.className = 'chip'; // reset
-        });
+        document.querySelectorAll('#kwFilterBar .chip').forEach(b => { b.className = 'chip'; });
         this.classList.add('active' + (filterState.status !== 'all' ? '-' + filterState.status : ''));
         applyFilter();
     });
 });
 
+
 // ──────────────────────────────────────────────
-// FILTER KEYWORDS
+// FILTRE MOTS-CLEFS
 // ──────────────────────────────────────────────
+
 function applyFilter() {
     const text = filterState.text.trim().toLowerCase();
     let visible = 0;
@@ -502,65 +589,149 @@ function applyFilter() {
 function resetFilter() {
     filterState.text   = '';
     filterState.status = 'all';
+    autoHideLow        = true;
     document.getElementById('kwFilterText').value = '';
     document.querySelectorAll('#kwFilterBar .chip').forEach(b => b.className = 'chip');
     document.querySelector('#kwFilterBar .chip[data-filter="all"]').classList.add('active');
     document.getElementById('kwFilterCount').textContent = '';
+    document.getElementById('autoHideBanner').classList.add('hidden');
 }
 
+
 // ──────────────────────────────────────────────
-// ADD KEYWORD
+// AJOUT D'UN MOT-CLEF
 // ──────────────────────────────────────────────
+
 async function addKeyword(conceptId, conceptLabel) {
-    if (!person) { toast('Chargez d\'abord une personne', 'err'); return; }
-    const existing = person[cfg.personPropExp] || [];
-    if (existing.find(v => v.display_title == conceptLabel)) {
+    if (!person) { toast("Chargez d'abord une personne", 'err'); return; }
+
+    // Vérifie le doublon sur toutes les propriétés configurées
+    const allExisting = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean)
+        .flatMap(prop => person[prop] || []);
+    if (allExisting.find(v => v.display_title == conceptLabel)) {
         toast('Ce mot-clef est déjà présent', 'err');
         return;
     }
+
     try {
         setLoading(true);
         document.getElementById('kwSearchInput').value = '';
         document.getElementById('kwAcDropdown').classList.add('hidden');
-        await a.omk.updateRessource(person['o:id'], { [cfg.personPropExp]: { rid: conceptId } });
+
+        // Rattache le concept à la première propriété de la liste
+        const firstProp = cfg.personPropExp.split(',')[0].trim();
+        await a.omk.updateRessource(person['o:id'], { [firstProp]: { rid: conceptId } });
+
         let exp = {
-            'value_resource_id':conceptId,
-            'display_title':conceptLabel,
-            'rank':"100"
-            },    
-            data = getExpertiseValues(exp,false,true),
-            //création de l'item    
-            ne = await a.omk.createItem(data);
+            'value_resource_id': conceptId,
+            'display_title':     conceptLabel,
+            'rank':              '100'
+        };
+        let data = getExpertiseValues(exp, false, true);
+        await a.omk.createItem(data);
+
         await loadPerson(person['o:id']);
-        sortKeywords('rank',-1);
+        sortKeywords('rank', -1);
         toast(`« ${conceptLabel} » ajouté`, 'ok');
-    } catch(e) {
+    } catch (e) {
         toast('Erreur : ' + e.message, 'err');
         setLoading(false);
     }
 }
 
+
 // ──────────────────────────────────────────────
-// SORT KEYWORDS
+// BROWSE — LISTE ECs PAR LABO
 // ──────────────────────────────────────────────
-function sortKeywords(field,dir=false) {
-    if(dir){
-            sortState.field = field;
-            sortState.dir = dir;
-    }else{
-        if (sortState.field === field) {
-            sortState.dir *= -1;
-        } else {
-            sortState.field = field;
-            sortState.dir = 1;
-        }
+
+function showBrowse() {
+    document.getElementById('browseSection').classList.remove('hidden');
+    document.getElementById('emptyState').classList.add('hidden');
+    document.getElementById('noallowType').classList.add('hidden');
+    document.getElementById('kwSection').classList.add('hidden');
+    document.getElementById('personBanner').classList.add('hidden');
+    document.getElementById('saveBar').classList.remove('hidden');
+    document.getElementById('loadingState').classList.add('hidden');
+    // Restaure le labo sélectionné si déjà en mémoire
+    if (browseLabId) {
+        document.getElementById('labSelect').value = browseLabId;
+        loadBrowsePersons(browseLabId, browsePage);
+    }
+}
+
+function hideBrowse() {
+    document.getElementById('browseSection').classList.add('hidden');
+    document.getElementById('browsePagination').classList.add('hidden');
+}
+
+function countKeywords(item) {
+    const propList = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean);
+    const seen = new Set();
+    propList.forEach(prop => {
+        (item[prop] || []).forEach(v => {
+            if (v.value_resource_id) seen.add(v.value_resource_id);
+        });
+    });
+    return seen.size;
+}
+
+function loadBrowsePersons(labId, page) {
+    const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+    const query = `resource_class_id[]=${cfg.idClassPerson}&property[0][joiner]=and&property[0][property]=${isPartOfPropId}&property[0][type]=res&property[0][text]=${labId}&sort_by=title&sort_order=asc`;
+    const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
+    renderBrowseList(items, hasMore);
+}
+
+function renderBrowseList(items, hasMore) {
+    const list = document.getElementById('browseList');
+    if (!items.length) {
+        list.innerHTML = `<p class="browse-empty">Aucun EC trouvé pour ce laboratoire.</p>`;
+        document.getElementById('browsePagination').classList.add('hidden');
+        return;
+    }
+    list.innerHTML = items.map(item => {
+        const label   = getLabel(item);
+        const id      = item['o:id'];
+        const kwCount = countKeywords(item);
+        return `<div class="browse-item" data-id="${id}">
+            <div class="browse-item-name">${esc(label)}</div>
+            <div class="browse-item-meta">
+                <span class="browse-id">#${id}</span>
+                <span class="browse-kw-badge${kwCount === 0 ? ' zero' : ''}">${kwCount} mot${kwCount > 1 ? 's' : ''}-clef${kwCount > 1 ? 's' : ''}</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('.browse-item').forEach(el => {
+        el.addEventListener('click', () => {
+            document.getElementById('personSearchInput').value = '';
+            loadPerson(parseInt(el.dataset.id));
+        });
+    });
+
+    const pagEl = document.getElementById('browsePagination');
+    pagEl.classList.remove('hidden');
+    document.getElementById('browsePaginationInfo').textContent = `Page ${browsePage}`;
+    document.getElementById('btnBrowsePrev').disabled = browsePage <= 1;
+    document.getElementById('btnBrowseNext').disabled = !hasMore;
+}
+
+
+// ──────────────────────────────────────────────
+// TRI DES MOTS-CLEFS
+// ──────────────────────────────────────────────
+
+function sortKeywords(field, dir = false) {
+    if (dir) {
+        sortState.field = field;
+        sortState.dir   = dir;
+    } else {
+        if (sortState.field === field) sortState.dir *= -1;
+        else { sortState.field = field; sortState.dir = 1; }
     }
     keywords.sort((a, b) => {
-        if (field === 'title') {
-            return sortState.dir * (a.display_title || '').localeCompare(b.display_title || '', 'fr');
-        } else {
-            return sortState.dir * (a.rank - b.rank);
-        }
+        if (field === 'title') return sortState.dir * (a.display_title || '').localeCompare(b.display_title || '', 'fr');
+        else                   return sortState.dir * (a.rank - b.rank);
     });
     updateSortButtons();
     renderKeywords();
@@ -571,296 +742,348 @@ function updateSortButtons() {
     const rBtn = document.getElementById('btnSortRank');
     tBtn.classList.toggle('active', sortState.field === 'title');
     rBtn.classList.toggle('active', sortState.field === 'rank');
-    tBtn.textContent = sortState.field === 'title'
-        ? (sortState.dir > 0 ? '↑ Titre' : '↓ Titre') : '↕ Titre';
-    rBtn.textContent = sortState.field === 'rank'
-        ? (sortState.dir > 0 ? '↑ Rang' : '↓ Rang') : '↕ Rang';
+    tBtn.textContent = sortState.field === 'title' ? (sortState.dir > 0 ? '↑ Titre' : '↓ Titre') : '↕ Titre';
+    rBtn.textContent = sortState.field === 'rank'  ? (sortState.dir > 0 ? '↑ Rang'  : '↓ Rang')  : '↕ Rang';
 }
 
+
 // ──────────────────────────────────────────────
-// LOAD PERSON
+// CHARGEMENT D'UNE PERSONNE
 // ──────────────────────────────────────────────
+
 async function loadPerson(personId) {
     if (!personId) personId = selectedPersonId;
     if (!personId || isNaN(personId)) { toast('Sélectionnez une personne dans la liste', 'err'); return; }
-    if (!cfg.keyId) { toast('Configurez d\'abord l\'API', 'err'); openSettings(); return; }
+    if (!cfg.keyId) { toast("Configurez d'abord l'API", 'err'); openSettings(); return; }
+
+    hideBrowse();
 
     // Réinitialise le filtre uniquement si la personne change
     if (!person || person['o:id'] !== parseInt(personId)) resetFilter();
 
     setLoading(true);
-    keywords = [];
+    keywords     = [];
     pendingCount = 0;
 
     try {
-        // 1. Fetch person
+        // 1. Charge l'item personne
         person = a.omk.getItem(personId);
 
-        //vérifie si le type correspond à une personne pour un peu de sécurité
-        if(cfg.personTypeAllow != person["@type"][1]){
+        // Vérifie que le type correspond bien à une personne autorisée
+        if (cfg.personTypeAllow != person['@type'][1]) {
             document.getElementById('noallowType').classList.remove('hidden');
-            d3.select("#noallowTypeCode").text(person["@type"][1]);
-        }else{
+            d3.select('#noallowTypeCode').text(person['@type'][1]);
+        } else {
             document.getElementById('noallowType').classList.add('hidden');
 
-            const personLabel = getLabel(person);
-            const propSourceId = a.omk.getPropId("dcterms:source");
-            const rtExpertiseId = a.omk.getRtId("Expertise");
+            const personLabel   = getLabel(person);
+            const propSourceId  = a.omk.getPropId('dcterms:source');
+            const rtExpertiseId = a.omk.getRtId('Expertise');
 
             document.getElementById('personBanner').innerHTML = `
                 <div class="person-banner">
                     <div>
+                        <button class="btn btn-ghost btn-sm btn-back" onclick="showBrowse(); person=null;">&#8592; Retour à la liste</button>
                         <h3>${esc(personLabel)}</h3>
                         <span>ID : ${personId} &mdash; </span>
                     </div>
-                    <div class="person-icon"><a id="linkToOmk" target="_blank" href="${a.omk.getItemAdminLink(person)}"><img style="height: 40px;" src="assets/img/OmekaS.png"
-            alt="link To Omk" /></a></div>
+                    <div class="person-icon">
+                        <a id="linkToOmk" target="_blank" href="${a.omk.getItemAdminLink(person)}">
+                            <img style="height: 40px;" src="assets/img/OmekaS.png" alt="link To Omk" />
+                        </a>
+                    </div>
                 </div>`;
             document.getElementById('personBanner').classList.remove('hidden');
 
-            // 2. Concepts via la propriété des expertises
-            const conceptVals = (person[cfg.personPropExp] || [])
-                .filter(v => (v.type === 'resource:item' || v.type === 'resource') && v.value_resource_id);
+            // 2. Récupère les concepts via toutes les propriétés configurées
+            const propList  = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean);
+            const seenIds   = new Set();
+            const conceptVals = propList.flatMap(prop =>
+                (person[prop] || [])
+                    .filter(v => (v.type === 'resource:item' || v.type === 'resource') && v.value_resource_id)
+                    .map(v => ({ ...v, _sourceProp: prop }))
+            ).filter(v => {
+                if (seenIds.has(v.value_resource_id)) return false;
+                seenIds.add(v.value_resource_id);
+                return true;
+            });
 
             if (!conceptVals.length) { showEmpty(); setLoading(false); return; }
 
-            // 3. Pré-charger les expertises existantes
+            // 3. Pré-charge les expertises existantes pour cette personne
             let existingExpertises = [];
             try {
                 const r = a.omk.searchItems(`property[0][joiner]=and&property[0][property]=${propSourceId}&property[0][type]=res&property[0][text]=${personId}&resource_template_id[]=${rtExpertiseId}`);
                 existingExpertises = Array.isArray(r) ? r : [];
-            } catch(e) {
+            } catch (e) {
                 console.warn('expertises fetch failed:', e.message);
             }
 
-            // 4. Construire la liste des mots-clefs et des expertises
+            // 4. Construit la liste finale des mots-clefs
             keywords = conceptVals.map(c => {
-                c.expertises = existingExpertises.filter(e=>e["valo:expertise"][0].value_resource_id==c.value_resource_id);
-                //console.log(c.value_resource_id);
+                c.expertises = existingExpertises.filter(e => e['valo:expertise'][0].value_resource_id == c.value_resource_id);
                 formatKeyword(c);
                 return c;
             });
-            
 
             renderKeywords();
         }
 
-    } catch(e) {
+    } catch (e) {
         toast('Erreur : ' + e.message, 'err');
         console.error(e);
     } finally {
-        sortKeywords('rank',-1);
+        sortKeywords('rank', -1);
         setLoading(false);
     }
 }
 
-function formatKeyword(c){
-    c.hasExpert=false;
-    //calcul les expertises
-    if(c["@annotation"])c.expertises.unshift(c["@annotation"]);
+
+// ──────────────────────────────────────────────
+// FORMATAGE DES DONNÉES MÉTIER
+// ──────────────────────────────────────────────
+
+function formatKeyword(c) {
+    c.hasExpert = false;
+    // Intègre l'annotation directe Omeka S si présente
+    if (c['@annotation']) c.expertises.unshift(c['@annotation']);
     c.rank = d3.sum(c.expertises, e => {
         formatExpertise(e);
-        if(e.creatorId==cfg.creatorId)c.hasExpert=true;
+        if (e.creatorId == cfg.creatorId) c.hasExpert = true;
         e.kw = c.value_resource_id;
         return e.rank;
-    })
-    //on ajoute la validation potentielle de l'expertise
-    if(!c.hasExpert)c.expertises.push({'rank':0, 'cls':'pos', 'sign':'', 'kw':c.value_resource_id, 'creatorId':cfg.creatorId, 'creatorTitle':creator["o:title"], 'created':"-"});
-    c.cls = c.rank > 0 ?  'pos' : 'neg';
-    c.sign  = c.rank > 0 ? '+' : '';
+    });
+    // Ajoute un slot placeholder si le créateur n'a pas encore d'expertise
+    if (!c.hasExpert) c.expertises.push({
+        rank: 0, cls: 'pos', sign: '', kw: c.value_resource_id,
+        creatorId: cfg.creatorId, creatorTitle: creator['o:title'], created: '-'
+    });
+    c.cls  = c.rank > 0 ? 'pos' : 'neg';
+    c.sign = c.rank > 0 ? '+' : '';
+}
+
+function formatExpertise(e) {
+    const lastRank = e[cfg.rankProp].length - 1;
+    e.rank        = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][lastRank]['@value']) : 0;
+    e.cls         = e.rank > 0 ? 'pos' : 'neg';
+    e.sign        = e.rank > 0 ? '+' : '';
+    e.creatorId   = e['dcterms:creator'] ? e['dcterms:creator'][0].value_resource_id : 'scanr';
+    e.creatorTitle = e['dcterms:creator'] ? e['dcterms:creator'][0].display_title    : 'ScanR Top Concept';
+    e.created     = e['o:created']       ? new Date(e['o:created']['@value']).toLocaleDateString() : '-';
 }
 
 
-function formatExpertise(e){
-    let lastRank = e[cfg.rankProp].length-1;
-    e.rank = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][lastRank]["@value"]) : 0;
-    e.cls = e.rank > 0 ?  'pos' : 'neg';
-    e.sign  = e.rank > 0 ? '+' : '';
-    e.creatorId = e["dcterms:creator"] ? e["dcterms:creator"][0].value_resource_id : 'scanr';
-    e.creatorTitle = e["dcterms:creator"] ? e["dcterms:creator"][0].display_title : "ScanR Top Concept";
-    e.created = e["o:created"] ? new Date(e["o:created"]["@value"]).toLocaleDateString()  : "-";
-}
+// ──────────────────────────────────────────────
+// RENDU D3 — MOTS-CLEFS
+// ──────────────────────────────────────────────
 
-// ──────────────────────────────────────────────
-// RENDER
-// ──────────────────────────────────────────────
 function renderKeywords() {
     if (!keywords.length) { showEmpty(); return; }
 
     // Ré-applique le tri actif si défini
     if (sortState.field) {
         keywords.sort((a, b) => {
-            if (sortState.field === 'title') {
-                return sortState.dir * (a.display_title || '').localeCompare(b.display_title || '', 'fr');
-            } else {
-                return sortState.dir * (a.rank - b.rank);
-            }
+            if (sortState.field === 'title') return sortState.dir * (a.display_title || '').localeCompare(b.display_title || '', 'fr');
+            else                             return sortState.dir * (a.rank - b.rank);
         });
         updateSortButtons();
     }
 
+    // Auto-masquage : affiche les 20 premiers, masque les suivants avec rank < 5
+    const textActive = filterState.text.trim().length > 0;
+    const shouldAutoHide = autoHideLow && keywords.length > 20 && !textActive;
+    const beyond20       = keywords.slice(20);
+    const hiddenByAuto   = shouldAutoHide ? beyond20.filter(kw => kw.rank < 5) : [];
+    const hiddenIds      = new Set(hiddenByAuto.map(kw => kw.value_resource_id));
+    const visibleKeywords = shouldAutoHide ? keywords.filter(kw => !hiddenIds.has(kw.value_resource_id)) : keywords;
+
+    // Bandeau d'info sur les masqués
+    const banner = document.getElementById('autoHideBanner');
+    if (hiddenByAuto.length > 0) {
+        document.getElementById('autoHideMsg').textContent =
+            `${hiddenByAuto.length} mot${hiddenByAuto.length > 1 ? 's' : ''}-clef${hiddenByAuto.length > 1 ? 's' : ''} masqué${hiddenByAuto.length > 1 ? 's' : ''}`;
+        banner.classList.remove('hidden');
+    } else {
+        banner.classList.add('hidden');
+    }
+
     document.getElementById('emptyState').classList.add('hidden');
     document.getElementById('kwCount').textContent = `${keywords.length} mot${keywords.length > 1 ? 's' : ''}`;
-    //document.getElementById('kwGrid').innerHTML = keywords.map((kw, i) => cardHTML(kw, i)).join('');
-    d3.select('#kwGrid').selectAll('div').remove();
-    let kw = d3.select('#kwGrid').selectAll('div').data(keywords).enter().append('div')
-            .attr("id",d=>'kw-card-'+d.value_resource_id)
-            .attr("class",d=>'kw-card '+d.cls),
-        kwTitle = kw.append("div").attr("class","kw-name").text(d=>d.display_title);
-    kwTitle.append('span').attr("class",d=>`rank-val-total ${d.cls}`).text(d=>d.sign+d.rank);
 
-    kw.append("div").attr("class","kw-meta").html(d=>d.expertises.length <= 0 ? 
-        `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>` :
-        `<span style="color:var(--success)">&#9679; ${d.expertises.length} Expertise(s) existante(s)</span>`,
+    d3.select('#kwGrid').selectAll('div').remove();
+    let kw = d3.select('#kwGrid').selectAll('div').data(visibleKeywords).enter().append('div')
+        .attr('id',    d => 'kw-card-' + d.value_resource_id)
+        .attr('class', d => 'kw-card ' + d.cls);
+
+    let kwTitle = kw.append('div').attr('class', 'kw-name').text(d => d.display_title);
+    kwTitle.append('span').attr('class', d => `rank-val-total ${d.cls}`).text(d => d.sign + d.rank);
+    kw.append('div').attr('class', 'kw-prop-badge').text(d => d._sourceProp ? d._sourceProp.split(':').pop() : '');
+    kw.append('div').attr('class', 'kw-meta').html(d => d.expertises.length <= 0
+        ? `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>`
+        : `<span style="color:var(--success)">&#9679; ${d.expertises.length} Expertise(s) existante(s)</span>`
     );
-    
+
     renderExpertise(kw);
-    
+
     document.getElementById('kwSection').classList.remove('hidden');
     document.getElementById('saveBar').classList.remove('hidden');
 
-    // Applique le filtre actif après rendu
     applyFilter();
 }
 
-function renderExpertise(kw){
-    let slider = kw.selectAll(".slider").data(d=>d.expertises).enter().append("div").attr("class","slider"),
-        rRank = slider.append("div").attr("class","rank-row");
-    rRank.append('span').attr("class","rank-label").text(d=>d.creatorTitle);
-    rRank.append('span').attr("class","rank-date").text(d=>d.created);
-    rRank.append('span').attr("id",d=>`rv-${d.kw+"-"+d.creatorId}`).attr("class",d=>`rank-val ${d.cls}`).text(d=>d.sign+d.rank);
-    let sliderWrap = kw.append("div").attr("class","slider-wrap");
-    sliderWrap.append("div").attr("class","slider-bg");
-    sliderWrap.append("div").attr("class","slider-zero");
-    sliderWrap.append("input").attr("type","range").attr("min",-100).attr("max",100).attr("step",1)
-        .attr("value",d=>{
-            return d.rank;
-        })
-        //.attr("disabled",d=>d.creatorId==cfg.creatorId ? null : true)
-        //.style("cursor",d=>d.creatorId==cfg.creatorId ? "pointer" : "not-allowed")
-        .on("input",onSlider)
-        .on("change",onSlider);
+function renderExpertise(kw) {
+    let slider = kw.selectAll('.slider').data(d => d.expertises).enter().append('div').attr('class', 'slider'),
+        rRank  = slider.append('div').attr('class', 'rank-row');
+    rRank.append('span').attr('class', 'rank-label').text(d => d.creatorTitle);
+    rRank.append('span').attr('class', 'rank-date').text(d => d.created);
+    rRank.append('span')
+        .attr('id',    d => `rv-${d.kw}-${d.creatorId}`)
+        .attr('class', d => `rank-val ${d.cls}`)
+        .text(d => d.sign + d.rank);
 
-    kw.append("div").attr("class","slider-labels")
-        .html(`<span class="neg-lbl">&minus;100</span>
-                <span>0</span>
-                <span class="pos-lbl">+100</span>`);
-    kw.append("div").attr("class","save-status").attr("id",d=>"ss-"+d.value_resource_id);
+    let sliderWrap = kw.append('div').attr('class', 'slider-wrap');
+    sliderWrap.append('div').attr('class', 'slider-bg');
+    sliderWrap.append('div').attr('class', 'slider-zero');
+    sliderWrap.append('input')
+        .attr('type', 'range').attr('min', -100).attr('max', 100).attr('step', 1)
+        .attr('value', d => d.rank)
+        //.attr('disabled', d => d.creatorId == cfg.creatorId ? null : true)
+        //.style('cursor',  d => d.creatorId == cfg.creatorId ? 'pointer' : 'not-allowed')
+        .on('input',  onSlider)
+        .on('change', onSlider);
 
-    //affiche les bouton suivant que le créateur est l'expert 
-    let barButton = kw.append("div").attr("class","rank-button");
-    barButton.append("button").attr("id",d=>'btnCreate'+d.value_resource_id).attr("class","btn btn-success hidden").style("float","left").text("Ajouter").on('click',createExpertise)
-    barButton.append("button").attr("id",d=>'btnUpdate'+d.value_resource_id).attr("class","btn btn-warn hidden").style("display","inline").text("Modifier").on('click',updateExpertise)
-    barButton.append("button").attr("id",d=>'btnDelete'+d.value_resource_id).attr("class",d=>"btn btn-danger"+(d.hasExpert?"":" hidden")).style("float","right").text("Supprimer").on('click',deleteExpertise)
+    kw.append('div').attr('class', 'slider-labels')
+        .html(`<span class="neg-lbl">&minus;100</span><span>0</span><span class="pos-lbl">+100</span>`);
+    kw.append('div').attr('class', 'save-status').attr('id', d => 'ss-' + d.value_resource_id);
+
+    // Boutons d'action selon que le créateur a déjà une expertise ou non
+    let barButton = kw.append('div').attr('class', 'rank-button');
+    barButton.append('button')
+        .attr('id',    d => 'btnCreate' + d.value_resource_id)
+        .attr('class', 'btn btn-success hidden')
+        .style('float', 'left')
+        .text('Ajouter')
+        .on('click', createExpertise);
+    barButton.append('button')
+        .attr('id',    d => 'btnUpdate' + d.value_resource_id)
+        .attr('class', 'btn btn-warn hidden')
+        .style('display', 'inline')
+        .text('Modifier')
+        .on('click', updateExpertise);
+    barButton.append('button')
+        .attr('id',    d => 'btnDelete' + d.value_resource_id)
+        .attr('class', d => 'btn btn-danger' + (d.hasExpert ? '' : ' hidden'))
+        .style('float', 'right')
+        .text('Supprimer')
+        .on('click', deleteExpertise);
 }
 
-function getExpertiseValues(d,update=false,create=false){
-    console.log(d);    
-    let rank = create ? d.rank : document.getElementById(`rv-${d.value_resource_id+"-"+cfg.creatorId}`).innerText,
-        titre = `Expertise - ${d.display_title} = ${rank} - pour ${person["o:title"]} fait par ${creator["o:title"]} le ${new Date().toLocaleDateString()}`,
-        data = {
-        'o:resource_template':'Expertise',
-        'o:resource_class':'valo:Expertises_all',
-        "dcterms:title":titre, 
-        "curation:rank":rank,
-    }
-    if(!update){
-        data["dcterms:creator"]={'rid':cfg.creatorId};
-        data["valo:expertise"]={'rid':d.value_resource_id};
-        data["dcterms:source"]={'rid':person["o:id"]};
+
+// ──────────────────────────────────────────────
+// CRUD — EXPERTISES
+// ──────────────────────────────────────────────
+
+function getExpertiseValues(d, update = false, create = false) {
+    let rank  = create ? d.rank : document.getElementById(`rv-${d.value_resource_id}-${cfg.creatorId}`).innerText,
+        titre = `Expertise - ${d.display_title} = ${rank} - pour ${person['o:title']} fait par ${creator['o:title']} le ${new Date().toLocaleDateString()}`,
+        data  = {
+            'o:resource_template': 'Expertise',
+            'o:resource_class':    'valo:Expertises_all',
+            'dcterms:title':       titre,
+            'curation:rank':       rank,
+        };
+    if (!update) {
+        data['dcterms:creator'] = { rid: cfg.creatorId };
+        data['valo:expertise']  = { rid: d.value_resource_id };
+        data['dcterms:source']  = { rid: person['o:id'] };
     }
     return data;
 }
 
-function showNewExpertise(d, ne, del=false){
-    //affichage des nouvelle données
-    let kw = d3.select("#kw-card-"+d.value_resource_id), newEwpertise = [];
+function showNewExpertise(d, ne, del = false) {
+    let kw = d3.select('#kw-card-' + d.value_resource_id),
+        newExpertise = [];
     d.expertises.forEach(element => {
-        if(parseInt(element.creatorId)==ne["dcterms:creator"][0].value_resource_id){
-            if(!del)newEwpertise.push(ne);
-        }else if(element.creatorId!="scanr")newEwpertise.push(element);    
+        if (parseInt(element.creatorId) == ne['dcterms:creator'][0].value_resource_id) {
+            if (!del) newExpertise.push(ne);
+        } else if (element.creatorId != 'scanr') {
+            newExpertise.push(element);
+        }
     });
-    d.expertises = newEwpertise;
+    d.expertises = newExpertise;
     formatKeyword(d);
-    kw.selectAll(".slider").remove();
-    kw.selectAll(".slider-wrap").remove();
-    kw.selectAll(".slider-labels").remove();
-    kw.selectAll(".save-status").remove();
-    kw.selectAll(".rank-button").remove();
-    
+    kw.selectAll('.slider').remove();
+    kw.selectAll('.slider-wrap').remove();
+    kw.selectAll('.slider-labels').remove();
+    kw.selectAll('.save-status').remove();
+    kw.selectAll('.rank-button').remove();
     renderExpertise(kw);
 }
 
-function setRankForKeyword(d){
-    //calcul la somme
-    d.rank=0;  
-    let card = d3.select("#kw-card-"+d.value_resource_id);
-    card.selectAll(".rank-val").each(rv=>{
-        d.rank+=rv.rank;
-    });
-    d.cls = d.rank > 0 ?  'pos' : 'neg';
-    d.sign  = d.rank > 0 ? '+' : '';
-    card.select(".rank-val-total").attr('class',"rank-val-total "+d.cls).text(d.rank);
+function setRankForKeyword(d) {
+    d.rank = 0;
+    let card = d3.select('#kw-card-' + d.value_resource_id);
+    card.selectAll('.rank-val').each(rv => { d.rank += rv.rank; });
+    d.cls  = d.rank > 0 ? 'pos' : 'neg';
+    d.sign = d.rank > 0 ? '+' : '';
+    card.select('.rank-val-total').attr('class', 'rank-val-total ' + d.cls).text(d.rank);
 }
 
-function getCreatorExpertise(d){
-    return d.expertises.filter(element => {
-        return parseInt(element.creatorId)==cfg.creatorId;    
-    })[0];
+function getCreatorExpertise(d) {
+    return d.expertises.filter(element => parseInt(element.creatorId) == cfg.creatorId)[0];
 }
 
-async function createExpertise(e,d){
+async function createExpertise(e, d) {
     let data = getExpertiseValues(d),
-        //création de l'item    
-        ne = await a.omk.createItem(data);
+        ne   = await a.omk.createItem(data);
     showNewExpertise(d, ne);
     setRankForKeyword(d);
 }
 
-async function updateExpertise(e,d){
-    let data = getExpertiseValues(d,true),
-    //filtre l'expertise du createur
-    exp = getCreatorExpertise(d),
-    //modifie l'expertise
-    ne = await a.omk.updateRessource(exp["o:id"],data);
+async function updateExpertise(e, d) {
+    let data = getExpertiseValues(d, true),
+        exp  = getCreatorExpertise(d),
+        ne   = await a.omk.updateRessource(exp['o:id'], data);
     showNewExpertise(d, ne);
-    //recalcul la somme 
     setRankForKeyword(d);
 }
 
-async function deleteExpertise(e,d){
+async function deleteExpertise(e, d) {
     let exp = getCreatorExpertise(d),
-        de = await a.omk.deleteItem(exp);
-    showNewExpertise(d,exp,true);
-    //recalcul la somme 
+        de  = await a.omk.deleteItem(exp);
+    showNewExpertise(d, exp, true);
     setRankForKeyword(d);
-    d3.select("#btnCreate"+d.value_resource_id).attr("class","btn btn-success");
+    d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
 }
+
+
+// ──────────────────────────────────────────────
+// SLIDER
+// ──────────────────────────────────────────────
 
 function onSlider(e, kw) {
     const rank = parseInt(e.target.value);
-    if(kw.hasExpert){
-        d3.select("#btnCreate"+kw.value_resource_id).attr("class","btn btn-success hidden");
-        d3.select("#btnUpdate"+kw.value_resource_id).attr("class","btn btn-warn");
-    }else{
-        d3.select("#btnCreate"+kw.value_resource_id).attr("class","btn btn-success");
-        d3.select("#btnUpdate"+kw.value_resource_id).attr("class","btn btn-warn hidden");
+    if (kw.hasExpert) {
+        d3.select('#btnCreate' + kw.value_resource_id).attr('class', 'btn btn-success hidden');
+        d3.select('#btnUpdate' + kw.value_resource_id).attr('class', 'btn btn-warn');
+    } else {
+        d3.select('#btnCreate' + kw.value_resource_id).attr('class', 'btn btn-success');
+        d3.select('#btnUpdate' + kw.value_resource_id).attr('class', 'btn btn-warn hidden');
     }
-
-
     const cls  = rank > 0 ? 'pos' : rank < 0 ? 'neg' : '';
     const sign = rank > 0 ? '+' : '';
-    const rv   = document.getElementById(`rv-${kw.value_resource_id+"-"+cfg.creatorId}`);
-    rv.className = `rank-val ${cls}`;
+    const rv   = document.getElementById(`rv-${kw.value_resource_id}-${cfg.creatorId}`);
+    rv.className   = `rank-val ${cls}`;
     rv.textContent = `${sign}${rank}`;
-
-    document.getElementById('kw-card-'+kw.value_resource_id).className = `kw-card ${cls}`;
-    document.getElementById("ss-"+kw.value_resource_id).innerHTML = '';
+    document.getElementById('kw-card-' + kw.value_resource_id).className = `kw-card ${cls}`;
+    document.getElementById('ss-' + kw.value_resource_id).innerHTML = '';
 }
+
 
 // ──────────────────────────────────────────────
 // UI UTILS
 // ──────────────────────────────────────────────
+
 function setLoading(on) {
     document.getElementById('loadingState').classList.toggle('hidden', !on);
     document.getElementById('kwSection').classList.toggle('hidden', on || !keywords.length);
@@ -868,6 +1091,7 @@ function setLoading(on) {
         document.getElementById('emptyState').classList.add('hidden');
         document.getElementById('saveBar').classList.add('hidden');
         document.getElementById('personBanner').classList.add('hidden');
+        document.getElementById('browseSection').classList.add('hidden');
     }
 }
 
@@ -884,17 +1108,21 @@ function esc(s) {
 }
 
 function toast(msg, type = 'info') {
-    const c = document.getElementById('toasts');
+    const c  = document.getElementById('toasts');
     const el = document.createElement('div');
-    el.className = `toast ${type}`;
+    el.className   = `toast ${type}`;
     el.textContent = msg;
     c.appendChild(el);
     setTimeout(() => {
-        el.style.opacity = '0';
+        el.style.opacity   = '0';
         el.style.transform = 'translateX(40px)';
         setTimeout(() => el.remove(), 320);
     }, 3200);
 }
+
+// Expose showBrowse globalement (utilisé dans le onclick inline du personBanner)
+window.showBrowse = () => { person = null; showBrowse(); };
+
 </script>
 
 </body>
