@@ -74,7 +74,7 @@
 <div class="container">
 
     <!-- Recherche personne -->
-    <div class="search-card">
+    <div class="search-card" id="searchCard">
         <h2>Charger une personne <code class="personTypeAllowCode"></code></h2>
         <div class="search-row">
             <div class="autocomplete-wrap">
@@ -117,6 +117,8 @@
                 </select>
             </div>
         </div>
+        <!-- Encadré directeurs du laboratoire -->
+        <div id="dlZone" class="dl-zone hidden"></div>
         <div id="browseList" class="browse-list"></div>
         <div id="browsePagination" class="browse-pagination hidden">
             <button id="btnBrowsePrev" class="btn btn-sm">&#8592; Précédent</button>
@@ -133,6 +135,7 @@
                 <div class="autocomplete-wrap">
                     <input type="text" id="kwSearchInput" placeholder="Ajouter un mot-clef…" autocomplete="off" />
                     <div id="kwAcDropdown" class="autocomplete-dropdown hidden"></div>
+                    <div id="kwSuggestQuota" class="kw-suggest-quota hidden"></div>
                 </div>
                 <div class="kw-sort-btns">
                     <button class="btn btn-sm btn-sort" id="btnSortTitle">↕ Titre</button>
@@ -195,12 +198,23 @@ import { pa }     from './assets/js/authParams.js';
 import { auth }   from './assets/js/auth.js';
 import { appUrl } from './assets/js/appUrl.js';
 
-// ── Listeners header ──
-d3.select('#btnOpenSettings').on('click', openSettings);
-d3.select('#btnSaveSettings').on('click', saveSettings);
-d3.select('#btnCloseSettings').on('click', closeSettings);
+
+// ──────────────────────────────────────────────
+// URL PARAMS & MODE
+// ──────────────────────────────────────────────
 
 const aUrl = new appUrl({ 'url': new URL(document.location) });
+
+// true si la session vient d'un lien EC (idAuthor, idCreator ou token présents)
+// → pas de sauvegarde localStorage, interface restreinte
+const fromUrl = aUrl.params.has('idCreator') || aUrl.params.has('idAuthor') || aUrl.params.has('t');
+
+// true si la session vient d'un lien DL (idLab présent)
+// → interface dispatch : liste ECs du labo, pas d'évaluation
+const fromDL  = aUrl.params.has('idLab');
+
+// ID du labo à afficher directement (lien DL)
+const urlLabId = fromDL ? parseInt(aUrl.params.get('idLab')) : null;
 
 
 // ──────────────────────────────────────────────
@@ -209,37 +223,51 @@ const aUrl = new appUrl({ 'url': new URL(document.location) });
 
 const STORAGE_KEY = 'validExpertises_cfg';
 
-let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null, // o:id de la personne à valider (URL param)
-    DEFAULTS = {
-        apiBase:         pa.apiOmk,
-        keyId:           pa.ident,
-        keyCred:         pa.key,
-        propMail:        pa.mail,
-        personTypeAllow: pa.personTypeAllow,
-        personPropExp:   pa.personPropExp,
-        rankProp:        'curation:rank',
-        creatorId:       aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,
-        idClassPerson:   0,
-        idClassKW:       0,
-        idClassLab:      0
-    },
-    cfg             = { ...DEFAULTS },
-    person          = null,  // item JSON de la personne courante
-    keywords        = [],    // [{display_title, rank, expertises, hasExpert, ...}]
-    pendingCount    = 0,
-    creator         = null,
+const DEFAULTS = {
+    apiBase:         pa.apiOmk,
+    keyId:           pa.ident,
+    keyCred:         pa.key,
+    propMail:        pa.mail,
+    personTypeAllow: pa.personTypeAllow,
+    personPropExp:   pa.personPropExp,
+    rankProp:        'curation:rank',
+    creatorId:       aUrl.params.has('idCreator') ? aUrl.params.get('idCreator') : pa.creatorId,
+    idClassPerson:   0,
+    idClassKW:       0,
+    idClassLab:      0,
+    role:            'operator', // 'operator' | 'DL'
+};
+
+// o:id de la personne à charger depuis l'URL (lien EC)
+let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null;
+
+let cfg             = { ...DEFAULTS },
+    person          = null,   // item JSON de la personne courante
+    keywords        = [],     // [{display_title, rank, expertises, hasExpert, ...}]
+    creator         = null,   // item JSON de l'évaluateur connecté
     selectedPersonId = null,
-    acTimer         = null,
-    acIndex         = -1,
-    kwAcTimer       = null,
-    kwAcIndex       = -1,
+    acTimer         = null,   // debounce autocomplete personne
+    acIndex         = -1,     // index de navigation clavier autocomplete personne
+    kwAcTimer       = null,   // debounce autocomplete mot-clef
+    kwAcIndex       = -1,     // index de navigation clavier autocomplete mot-clef
     sortState       = { field: null, dir: 1 },
     filterState     = { text: '', status: 'all' },
-    autoHideLow     = true,
-    labs            = [],
-    browseLabId     = null,
+    autoHideLow     = true,   // masque les mots-clefs peu pertinents automatiquement
+    labs            = [],     // tous les items valo:Laboratoire
+    browseLabId     = null,   // labo sélectionné dans le browse
     browsePage      = 1,
-    a;
+    allowedLabIds   = null,   // null = global_admin | Array = lab IDs autorisés
+    suggestedKwCount = 0,     // nb de concepts suggérés par l'EC (quota)
+    a;                        // instance auth (couche Omeka S)
+
+
+// ──────────────────────────────────────────────
+// LISTENERS HEADER
+// ──────────────────────────────────────────────
+
+d3.select('#btnOpenSettings').on('click', openSettings);
+d3.select('#btnSaveSettings').on('click', saveSettings);
+d3.select('#btnCloseSettings').on('click', closeSettings);
 
 
 // ──────────────────────────────────────────────
@@ -247,22 +275,42 @@ let authorId = aUrl.params.has('idAuthor') ? aUrl.params.get('idAuthor') : null,
 // ──────────────────────────────────────────────
 
 (async function init() {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-        try { cfg = { ...DEFAULTS, ...JSON.parse(stored) }; }
-        catch (e) { /* ignore JSON malformé */ }
+    if (!fromUrl && !fromDL) {
+        // Charge la config sauvegardée — ignorée en session EC (fromUrl)
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            try { cfg = { ...DEFAULTS, ...JSON.parse(stored) }; }
+            catch (e) { /* JSON malformé, on ignore */ }
+        }
     }
+
+    // Injecte les paramètres URL dans cfg
     if (aUrl.params.has('idCreator')) cfg.creatorId = aUrl.params.get('idCreator');
-    openSettings();
+    if (aUrl.params.has('t')) {
+        const decoded = decodeKey(aUrl.params.get('t'));
+        if (decoded) {
+            cfg.keyCred  = decoded;
+            cfg.keyId    = pa.ecKeyId;
+            cfg.propMail = pa.ecMail;
+        }
+    }
+
+    // Affiche la modale uniquement si la config ne vient pas de l'URL
+    if (!fromUrl && !fromDL) openSettings();
+
     if (cfg.keyCred) {
-        await saveSettings();
-        if (authorId) loadPerson(authorId);
+        const ok = await saveSettings();
+        if (ok) {
+            if (fromUrl) lockEcMode();
+            if (fromDL)  lockDlMode();
+            if (authorId) loadPerson(authorId);
+        }
     }
 })();
 
+// Met à jour les libellés dynamiques dans l'UI après saveSettings
 function showSettings() {
     d3.select('.personTypeAllowCode').html(cfg.personTypeAllow);
-    // Affiche les props séparées par " + " dans les spans de l'UI
     const propsDisplay = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean).join(' + ');
     d3.selectAll('.personPropExp').html(propsDisplay);
 }
@@ -281,14 +329,19 @@ function openSettings() {
     document.getElementById('cfgRankProp').value        = cfg.rankProp;
     document.getElementById('cfgPersonTypeAllow').value = cfg.personTypeAllow;
     document.getElementById('cfgPersonPropExp').value   = cfg.personPropExp;
-
-    // Réinitialise les erreurs à chaque ouverture
     document.querySelectorAll('#settingsOverlay .input-error').forEach(el => el.classList.remove('input-error'));
     const errEl = document.getElementById('cfgErrors');
     errEl.classList.add('hidden');
     errEl.innerHTML = '';
-
     document.getElementById('settingsOverlay').classList.add('open');
+
+    // En mode EC ou DL, masque les champs techniques inutiles
+    const techFields = ['cfgApiBase', 'cfgPropMail', 'cfgKeyId', 'cfgKeyCred',
+                        'cfgRankProp', 'cfgPersonTypeAllow', 'cfgPersonPropExp'];
+    techFields.forEach(id => {
+        const field = document.getElementById(id)?.closest('.form-group');
+        if (field) field.style.display = (fromUrl || fromDL) ? 'none' : '';
+    });
 }
 
 function closeSettings() {
@@ -299,21 +352,19 @@ function closeSettings() {
 document.querySelectorAll('#settingsOverlay input').forEach(input => {
     input.addEventListener('input', function () {
         this.classList.remove('input-error');
-        if (!document.querySelector('#settingsOverlay .input-error')) {
+        if (!document.querySelector('#settingsOverlay .input-error'))
             document.getElementById('cfgErrors').classList.add('hidden');
-        }
     });
 });
 
 async function saveSettings() {
-    // ── Réinitialise les erreurs
     const errEl = document.getElementById('cfgErrors');
     document.querySelectorAll('#settingsOverlay .input-error').forEach(el => el.classList.remove('input-error'));
     errEl.classList.add('hidden');
     errEl.innerHTML = '';
 
-    // ── Lecture des valeurs
-    const vals = {
+    // En session EC ou DL (fromUrl/fromDL), cfg est déjà rempli — pas besoin de lire les inputs
+    const vals = (fromUrl || fromDL) ? { ...cfg } : {
         apiBase:         (document.getElementById('cfgApiBase').value         || '').trim().replace(/\/$/, ''),
         propMail:        (document.getElementById('cfgPropMail').value        || '').trim(),
         keyId:            document.getElementById('cfgKeyId').value.trim(),
@@ -324,7 +375,7 @@ async function saveSettings() {
         personPropExp:    document.getElementById('cfgPersonPropExp').value.trim(),
     };
 
-    // ── Validation des champs obligatoires
+    // Validation des champs obligatoires
     const required = [
         { id: 'cfgApiBase',         val: vals.apiBase,         label: "URL de base de l'API" },
         { id: 'cfgKeyId',           val: vals.keyId,           label: 'key_identity' },
@@ -335,42 +386,96 @@ async function saveSettings() {
     ];
     const missing = required.filter(f => !f.val);
     if (missing.length) {
-        missing.forEach(f => document.getElementById(f.id).classList.add('input-error'));
-        errEl.innerHTML = `<strong>Champs obligatoires manquants&nbsp;:</strong>
-            <ul>${missing.map(f => `<li>${f.label}</li>`).join('')}</ul>`;
-        errEl.classList.remove('hidden');
-        return;
+        if (!fromUrl && !fromDL) {
+            missing.forEach(f => document.getElementById(f.id).classList.add('input-error'));
+            errEl.innerHTML = `<strong>Champs obligatoires manquants&nbsp;:</strong>
+                <ul>${missing.map(f => `<li>${f.label}</li>`).join('')}</ul>`;
+            errEl.classList.remove('hidden');
+        }
+        return false;
     }
 
-    // ── Sauvegarde
+    // Sauvegarde (ignorée en session EC pour ne pas polluer le localStorage de l'opérateur)
     Object.assign(cfg, vals);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    if (!fromUrl && !fromDL) localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
 
-    // ── Initialise la couche Omeka S
-    a = new auth({
-        mail:   cfg.propMail,
-        apiOmk: cfg.apiBase,
-        ident:  cfg.keyId,
-        key:    cfg.keyCred
-    });
+    // Initialise la couche Omeka S
+    a = new auth({ mail: cfg.propMail, apiOmk: cfg.apiBase, ident: cfg.keyId, key: cfg.keyCred });
     await a.getUser();
+
+    // Vérifie que la connexion a réussi
+    if (!a.user || !a.omk) {
+        if (!fromUrl && !fromDL) {
+            document.getElementById('cfgKeyId').classList.add('input-error');
+            document.getElementById('cfgKeyCred').classList.add('input-error');
+            errEl.innerHTML = '<strong>Connexion échouée</strong> — vérifiez vos clés API.';
+            errEl.classList.remove('hidden');
+            openSettings();
+        }
+        return false;
+    }
+
     cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)['o:id'];
     cfg.idClassKW     = a.omk.getClassByTerm('skos:Concept')['o:id'];
     cfg.idClassLab    = a.omk.getClassByTerm('valo:Laboratoire')['o:id'];
-    creator = a.omk.getItem(cfg.creatorId);
-    d3.select('#creator').text(creator['o:title'] ? creator['o:title'] : '');
+    creator           = a.omk.getItem(cfg.creatorId);
 
-    // ── Charge les labos pour le browse
-    labs = a.omk.searchItems(`resource_class_id[]=${cfg.idClassLab}&sort_by=title&sort_order=asc&per_page=1000`) || [];
+    // Charge tous les labos (nécessaire pour la détection du rôle DL)
+    labs = a.omk.searchItems(
+        `resource_class_id[]=${cfg.idClassLab}&sort_by=title&sort_order=asc&per_page=1000`
+    ) || [];
+
+    // Détecte le rôle DL : le créateur apparaît dans valo:directeurs d'au moins un labo
+    const creatorIdInt = parseInt(cfg.creatorId);
+    const isDL = labs.some(l =>
+        (l['valo:directeurs'] || []).some(v => v.value_resource_id === creatorIdInt)
+    );
+    cfg.role = isDL ? 'DL' : 'operator';
+    if (!fromUrl && !fromDL) localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+
+    // Calcule le périmètre selon le rôle
+    if (a.userAdmin || fromUrl || fromDL) {
+        // global_admin → tout | session EC/DL via lien → accès libre
+        allowedLabIds = null;
+    } else if (cfg.role === 'DL') {
+        // DL → labos où il apparaît en valo:directeurs
+        allowedLabIds = labs
+            .filter(l => (l['valo:directeurs'] || []).some(v => v.value_resource_id === creatorIdInt))
+            .map(l => l['o:id']);
+    } else {
+        // Opérateur → labos via valo:responsableDe sur son item
+        allowedLabIds = (creator['valo:responsableDe'] || [])
+            .filter(v => v.value_resource_id)
+            .map(v => parseInt(v.value_resource_id));
+    }
+
+    // Filtre les labos visibles selon le périmètre et peuple le select
+    const visibleLabs = (allowedLabIds === null)
+        ? labs
+        : labs.filter(l => allowedLabIds.includes(l['o:id']));
     const labSel = document.getElementById('labSelect');
     labSel.innerHTML = '<option value="">— Sélectionner un laboratoire —</option>'
-        + labs.map(l => `<option value="${l['o:id']}">${esc(getLabel(l))}</option>`).join('');
+        + visibleLabs.map(l => `<option value="${l['o:id']}">${esc(getLabel(l))}</option>`).join('');
+
+    // DL : pré-sélectionne automatiquement son labo s'il n'en a qu'un
+    if (cfg.role === 'DL' && allowedLabIds && allowedLabIds.length === 1) {
+        labSel.value = allowedLabIds[0];
+        browseLabId  = allowedLabIds[0];
+    }
+
+    // Affiche le nom et le rôle dans le header
+    d3.select('#creator').text(
+        (creator['o:title'] || '') +
+        (cfg.role === 'DL' ? ' — Directeur de laboratoire' : '')
+    );
 
     showSettings();
     closeSettings();
     toast('Configuration enregistrée', 'ok');
 
-    if (!person) showBrowse();
+    // Affiche le browse seulement hors mode EC/DL
+    if (!person && !fromUrl && !fromDL) showBrowse();
+    return true;
 }
 
 
@@ -400,10 +505,20 @@ document.getElementById('personSearchInput').addEventListener('input', function 
     if (!query.trim()) { dropdown.classList.add('hidden'); return; }
     acTimer = setTimeout(async () => {
         try {
-            const items = a.omk.searchItems(`property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassPerson}`);
+            const items = a.omk.searchItems(
+                `property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassPerson}`
+            );
+            // Filtre par labo si l'opérateur n'est pas global_admin
+            const filtered = (allowedLabIds === null)
+                ? items
+                : items.filter(item =>
+                    (item['dcterms:isPartOf'] || [])
+                        .map(v => parseInt(v.value_resource_id))
+                        .some(id => allowedLabIds.includes(id))
+                );
             acIndex = -1;
-            if (!items.length) { dropdown.classList.add('hidden'); return; }
-            dropdown.innerHTML = items.map(item => {
+            if (!filtered.length) { dropdown.classList.add('hidden'); return; }
+            dropdown.innerHTML = filtered.map(item => {
                 const label = getLabel(item);
                 const id    = item['o:id'];
                 return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
@@ -464,21 +579,45 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
     if (!query.trim()) { dropdown.classList.add('hidden'); return; }
     kwAcTimer = setTimeout(async () => {
         try {
-            const items = a.omk.searchItems(`property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassKW}`);
+            const items = a.omk.searchItems(
+                `property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassKW}`
+            );
             kwAcIndex = -1;
-            if (!items.length) { dropdown.classList.add('hidden'); return; }
+
+            // Option "Créer" — uniquement en mode EC si quota disponible
+            const canSuggest  = fromUrl && suggestedKwCount < pa.maxSuggestedKw;
+            const exactExists = items.some(i => getLabel(i).toLowerCase() === query.trim().toLowerCase());
+            const createOption = fromUrl && !exactExists
+                ? canSuggest
+                    ? `<div class="autocomplete-item ac-create" data-create="${esc(query.trim())}">
+                        ➕ Créer « ${esc(query.trim())} »
+                       </div>`
+                    : `<div class="autocomplete-item ac-quota-full">
+                        ➕ Quota atteint (${pa.maxSuggestedKw}/${pa.maxSuggestedKw})
+                       </div>`
+                : '';
+
+            if (!items.length && !createOption) { dropdown.classList.add('hidden'); return; }
+
             dropdown.innerHTML = items.map(item => {
                 const label = getLabel(item);
                 const id    = item['o:id'];
                 return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
                             <span>${esc(label)}</span><span class="ac-id">#${id}</span>
                         </div>`;
-            }).join('');
-            dropdown.querySelectorAll('.autocomplete-item').forEach(el => {
-                el.addEventListener('mousedown', () => {
-                    addKeyword(parseInt(el.dataset.id), el.dataset.label);
-                });
+            }).join('') + createOption;
+
+            dropdown.querySelectorAll('.autocomplete-item[data-id]').forEach(el => {
+                el.addEventListener('mousedown', () => addKeyword(parseInt(el.dataset.id), el.dataset.label));
             });
+            const createEl = dropdown.querySelector('.ac-create');
+            if (createEl) {
+                createEl.addEventListener('mousedown', () => {
+                    document.getElementById('kwSearchInput').value = '';
+                    dropdown.classList.add('hidden');
+                    suggestNewKeyword(createEl.dataset.create);
+                });
+            }
             dropdown.classList.remove('hidden');
         } catch (e) { /* ignore autocomplete errors */ }
     }, 280);
@@ -520,6 +659,7 @@ document.getElementById('btnSortRank').addEventListener('click',  () => sortKeyw
 document.getElementById('labSelect').addEventListener('change', function () {
     browseLabId = this.value ? parseInt(this.value) : null;
     browsePage  = 1;
+    document.getElementById('dlZone').classList.add('hidden');
     if (browseLabId) loadBrowsePersons(browseLabId, browsePage);
     else document.getElementById('browseList').innerHTML = '';
 });
@@ -571,10 +711,10 @@ function applyFilter() {
         const matchText   = !text || (kw.display_title || '').toLowerCase().includes(text);
         let   matchStatus = true;
         switch (filterState.status) {
-            case 'todo': matchStatus = !kw.hasExpert;  break;
-            case 'done': matchStatus =  kw.hasExpert;  break;
-            case 'pos':  matchStatus =  kw.rank > 0;   break;
-            case 'neg':  matchStatus =  kw.rank <= 0;  break;
+            case 'todo': matchStatus = !kw.hasExpert; break;
+            case 'done': matchStatus =  kw.hasExpert; break;
+            case 'pos':  matchStatus =  kw.rank > 0;  break;
+            case 'neg':  matchStatus =  kw.rank <= 0; break;
         }
         const show = matchText && matchStatus;
         card.style.display = show ? '' : 'none';
@@ -622,12 +762,8 @@ async function addKeyword(conceptId, conceptLabel) {
         const firstProp = cfg.personPropExp.split(',')[0].trim();
         await a.omk.updateRessource(person['o:id'], { [firstProp]: { rid: conceptId } });
 
-        let exp = {
-            'value_resource_id': conceptId,
-            'display_title':     conceptLabel,
-            'rank':              '100'
-        };
-        let data = getExpertiseValues(exp, false, true);
+        const exp  = { 'value_resource_id': conceptId, 'display_title': conceptLabel, 'rank': '100' };
+        const data = getExpertiseValues(exp, false, true);
         await a.omk.createItem(data);
 
         await loadPerson(person['o:id']);
@@ -664,20 +800,21 @@ function hideBrowse() {
     document.getElementById('browsePagination').classList.add('hidden');
 }
 
+// Compte le nombre de mots-clefs distincts d'un item EC
 function countKeywords(item) {
-    const propList = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean);
     const seen = new Set();
-    propList.forEach(prop => {
-        (item[prop] || []).forEach(v => {
-            if (v.value_resource_id) seen.add(v.value_resource_id);
-        });
+    cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean).forEach(prop => {
+        (item[prop] || []).forEach(v => { if (v.value_resource_id) seen.add(v.value_resource_id); });
     });
     return seen.size;
 }
 
 function loadBrowsePersons(labId, page) {
     const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
-    const query = `resource_class_id[]=${cfg.idClassPerson}&property[0][joiner]=and&property[0][property]=${isPartOfPropId}&property[0][type]=res&property[0][text]=${labId}&sort_by=title&sort_order=asc`;
+    const query = `resource_class_id[]=${cfg.idClassPerson}` +
+        `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
+        `&property[0][type]=res&property[0][text]=${labId}` +
+        `&sort_by=title&sort_order=asc`;
     const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
     renderBrowseList(items, hasMore);
 }
@@ -689,18 +826,36 @@ function renderBrowseList(items, hasMore) {
         document.getElementById('browsePagination').classList.add('hidden');
         return;
     }
+
+    // Index des DLs du labo courant pour badge et bouton rapide
+    const lab      = labs.find(l => l['o:id'] === browseLabId);
+    const dlIds    = new Set((lab ? (lab['valo:directeurs'] || []) : []).map(v => v.value_resource_id));
+
     list.innerHTML = items.map(item => {
         const label   = getLabel(item);
         const id      = item['o:id'];
         const kwCount = countKeywords(item);
-        return `<div class="browse-item" data-id="${id}">
-            <div class="browse-item-name">${esc(label)}</div>
+        const link    = buildEcLink(id);
+        const isDL    = dlIds.has(id);
+        const dlBadge = isDL ? `<span class="browse-dl-badge">DL</span>` : '';
+        return `<div class="browse-item${isDL ? ' is-dl' : ''}" data-id="${id}">
+            <div class="browse-item-name">${esc(label)}${dlBadge}</div>
             <div class="browse-item-meta">
                 <span class="browse-id">#${id}</span>
                 <span class="browse-kw-badge${kwCount === 0 ? ' zero' : ''}">${kwCount} mot${kwCount > 1 ? 's' : ''}-clef${kwCount > 1 ? 's' : ''}</span>
+                <button class="btn btn-sm btn-ghost btn-copy-link" data-link="${link}" title="Copier le lien EC">🔗</button>
             </div>
         </div>`;
     }).join('');
+
+    list.querySelectorAll('.btn-copy-link').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(btn.dataset.link)
+                .then(() => toast('Lien copié !', 'ok'))
+                .catch(() => toast('Impossible de copier', 'err'));
+        });
+    });
 
     list.querySelectorAll('.browse-item').forEach(el => {
         el.addEventListener('click', () => {
@@ -709,11 +864,243 @@ function renderBrowseList(items, hasMore) {
         });
     });
 
+    // Pagination
     const pagEl = document.getElementById('browsePagination');
     pagEl.classList.remove('hidden');
     document.getElementById('browsePaginationInfo').textContent = `Page ${browsePage}`;
     document.getElementById('btnBrowsePrev').disabled = browsePage <= 1;
     document.getElementById('btnBrowseNext').disabled = !hasMore;
+
+    // Bouton "Copier tous les liens" — opérateur et DL
+    let copyAllBtn = document.getElementById('btnCopyAllLinks');
+    if (!copyAllBtn) {
+        copyAllBtn = document.createElement('button');
+        copyAllBtn.id        = 'btnCopyAllLinks';
+        copyAllBtn.className   = '';
+        copyAllBtn.textContent = '📋';
+        copyAllBtn.title       = 'Copier tous les liens';
+        document.getElementById('browseSection').querySelector('.browse-header').appendChild(copyAllBtn);
+    }
+    copyAllBtn.onclick = () => {
+        const text = items.map(item => `${getLabel(item)} : ${buildEcLink(item['o:id'])}`).join('\n');
+        navigator.clipboard.writeText(text)
+            .then(() => toast(`${items.length} lien${items.length > 1 ? 's' : ''} copié${items.length > 1 ? 's' : ''} !`, 'ok'))
+            .catch(() => toast('Impossible de copier', 'err'));
+    };
+
+    renderDlZone(lab);
+}
+
+
+// Affiche l'encadré des directeurs du laboratoire au-dessus de la liste ECs
+function renderDlZone(lab) {
+    const zone   = document.getElementById('dlZone');
+    const dlVals = lab ? (lab['valo:directeurs'] || []) : [];
+
+    if (!dlVals.length) {
+        zone.innerHTML = `<p class="dl-zone-empty">Aucun directeur renseigné pour ce laboratoire.</p>`;
+        zone.classList.remove('hidden');
+        return;
+    }
+
+    const dlItems = dlVals.map(v => a.omk.getItem(v.value_resource_id));
+
+    zone.innerHTML = `
+        <div class="dl-zone-title">Directeur(s) du laboratoire</div>
+        ${dlItems.map(dl => {
+            const name  = getLabel(dl);
+            const mail  = (dl['foaf:mbox'] || [])[0]?.['@value'] || '';
+            const dlLink = buildDlLink(lab['o:id'], dl['o:id']);
+            return `<div class="dl-zone-row">
+                <span class="dl-zone-name">${esc(name)}</span>
+                <div class="dl-zone-actions">
+                    <button class="btn btn-sm btn-primary dl-send-btn"
+                        data-mail="${esc(mail)}" data-name="${esc(name)}"
+                        data-dlid="${dl['o:id']}"
+                        title="Envoyer le lien dispatch + lien EC au DL">
+                        ✉ Envoyer les liens
+                    </button>
+                </div>
+            </div>`;
+        }).join('')}`;
+
+    zone.querySelectorAll('.dl-send-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            sendDLEmail([], btn.dataset.mail, btn.dataset.name, parseInt(btn.dataset.dlid));
+        });
+    });
+
+    zone.classList.remove('hidden');
+
+    // En mode DL, l'encadré est inutile (le DL ne s'envoie pas de mail à lui-même)
+    if (window._dlMode) zone.classList.add('hidden');
+}
+
+
+// ──────────────────────────────────────────────
+// ENCODAGE DE LA CLÉ API
+// Encodage léger (non cryptographique) pour éviter
+// la clé API en clair dans les logs serveur.
+// Algorithme : base64 → inversion → substitution URL-safe
+// ──────────────────────────────────────────────
+
+function encodeKey(key) {
+    const b64 = btoa(key);
+    const rev = b64.split('').reverse().join('');
+    return rev.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '.');
+}
+
+function decodeKey(encoded) {
+    try {
+        const rev = encoded.replace(/-/g, '+').replace(/_/g, '/').replace(/\./g, '=');
+        const b64 = rev.split('').reverse().join('');
+        return atob(b64);
+    } catch (e) {
+        return '';
+    }
+}
+
+
+// ──────────────────────────────────────────────
+// MODE DL
+// Quand le DL ouvre son lien (?idLab=XXX) :
+// interface restreinte au Browse de son labo,
+// sans évaluation possible.
+// ──────────────────────────────────────────────
+
+function lockDlMode() {
+    // Masque la recherche de personnes
+    const searchCard = document.getElementById('searchCard');
+    if (searchCard) searchCard.classList.add('hidden');
+
+    // Masque le sélecteur de labo (le DL ne peut pas changer de labo)
+    const labSelect = document.getElementById('labSelect');
+    if (labSelect) labSelect.style.display = 'none';
+
+    // Masque l'encadré DL (boutons "Envoyer les liens" réservés aux opérateurs)
+    // sera caché après renderDlZone via un flag
+    window._dlMode = true;
+
+    // Si dlCanEdit = false, les fiches EC sont en lecture seule pour le DL
+    if (!pa.dlCanEdit) window._dlReadOnly = true;
+
+    // Neutralise showBrowse
+    window.showBrowse = () => {};
+
+    // Pré-sélectionne le labo et charge la liste
+    if (urlLabId) {
+        browseLabId = urlLabId;
+        document.getElementById('browseSection').classList.remove('hidden');
+        document.getElementById('saveBar').classList.remove('hidden');
+        loadBrowsePersons(urlLabId, 1);
+    }
+}
+
+
+// ──────────────────────────────────────────────
+// MODE EC
+// L'EC ne voit que sa propre fiche — pas de search,
+// pas de browse, pas de navigation.
+// ──────────────────────────────────────────────
+
+function lockEcMode() {
+    const searchCard = document.getElementById('searchCard');
+    if (searchCard) searchCard.classList.add('hidden');
+
+    const browseSection = document.getElementById('browseSection');
+    if (browseSection) browseSection.classList.add('hidden');
+
+    const input = document.getElementById('personSearchInput');
+    if (input) { input.disabled = true; input.style.pointerEvents = 'none'; }
+
+    // Neutralise showBrowse pour qu'il ne fasse rien en mode EC
+    window.showBrowse = () => {};
+}
+
+
+// ──────────────────────────────────────────────
+// GÉNÉRATION DE LIENS EC
+// ──────────────────────────────────────────────
+
+// Construit le lien dispatch pour un DL
+// (idLab = labo à afficher, idCreator = item DL)
+function buildDlLink(labId, dlId) {
+    const base  = window.location.href.split('?')[0];
+    const token = encodeURIComponent(encodeKey(pa.ecKeyCred));
+    return `${base}?idLab=${labId}&idCreator=${dlId}&t=${token}`;
+}
+
+// Construit l'URL personnalisée d'un EC pour auto-évaluation
+// (idAuthor = idCreator = EC lui-même)
+function buildEcLink(ecId) {
+    const base  = window.location.href.split('?')[0];
+    const token = encodeURIComponent(encodeKey(pa.ecKeyCred));
+    return `${base}?idAuthor=${ecId}&idCreator=${ecId}&t=${token}`;
+}
+
+// Génère un mailto vers le(s) DL avec :
+// - son lien DL (pour dispatcher les liens EC)
+// - son propre lien EC (pour s'auto-évaluer)
+function sendDLEmail(items, dlMail = '', dlName = '', dlId = null) {
+    const lab     = labs.find(l => l['o:id'] === browseLabId);
+    const labName = lab ? getLabel(lab) : 'votre laboratoire';
+    const dlLink  = dlId ? buildDlLink(browseLabId, dlId) : null;
+    const ecLink  = dlId ? buildEcLink(dlId) : null;
+    const body    = encodeURIComponent(
+        `Bonjour${dlName ? ' ' + dlName : ''},\n\n` +
+        (dlLink
+            ? `En tant que directeur du laboratoire ${labName}, voici votre lien pour redistribuer les liens individuels à vos enseignants-chercheurs :\n${dlLink}\n\n`
+            : '') +
+        (ecLink
+            ? `En tant qu'enseignant-chercheur, voici votre lien personnel pour noter vos mots-clefs :\n${ecLink}\n\n`
+            : '') +
+        `Bonne journée.`
+    );
+    const subject = encodeURIComponent(`Validation des mots-clefs — ${labName}`);
+    window.location.href = `mailto:${dlMail}?subject=${subject}&body=${body}`;
+}
+
+
+// ──────────────────────────────────────────────
+// SUGGESTION DE NOUVEAU MOT-CLEF (mode EC)
+// Crée un skos:Concept dans Omeka S avec un flag
+// dcterms:description = "suggestion" pour review.
+// ──────────────────────────────────────────────
+
+async function suggestNewKeyword(label) {
+    if (!person) return;
+    if (suggestedKwCount >= pa.maxSuggestedKw) {
+        toast(`Quota atteint — maximum ${pa.maxSuggestedKw} suggestion${pa.maxSuggestedKw > 1 ? 's' : ''}`, 'err');
+        return;
+    }
+    try {
+        setLoading(true);
+        const newConcept = await a.omk.createItem({
+            'o:resource_class':    'skos:Concept',
+            'dcterms:title':        label,
+            'dcterms:creator':    { rid: cfg.creatorId },
+            'dcterms:description':  'suggestion',
+        });
+        suggestedKwCount++;
+        updateSuggestQuotaDisplay();
+        await addKeyword(newConcept['o:id'], label);
+        toast(`« ${label} » suggéré et ajouté`, 'ok');
+    } catch (e) {
+        toast('Erreur lors de la création : ' + e.message, 'err');
+        setLoading(false);
+    }
+}
+
+function updateSuggestQuotaDisplay() {
+    if (!fromUrl) return;
+    const el        = document.getElementById('kwSuggestQuota');
+    if (!el) return;
+    const remaining = pa.maxSuggestedKw - suggestedKwCount;
+    el.textContent  = remaining > 0
+        ? `Suggestion${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''} : ${remaining} / ${pa.maxSuggestedKw}`
+        : `Quota de suggestions atteint (${pa.maxSuggestedKw}/${pa.maxSuggestedKw})`;
+    el.className    = `kw-suggest-quota${remaining === 0 ? ' quota-full' : ''}`;
+    el.classList.remove('hidden');
 }
 
 
@@ -757,17 +1144,26 @@ async function loadPerson(personId) {
     if (!cfg.keyId) { toast("Configurez d'abord l'API", 'err'); openSettings(); return; }
 
     hideBrowse();
-
-    // Réinitialise le filtre uniquement si la personne change
     if (!person || person['o:id'] !== parseInt(personId)) resetFilter();
 
     setLoading(true);
-    keywords     = [];
-    pendingCount = 0;
+    keywords = [];
 
     try {
-        // 1. Charge l'item personne
         person = a.omk.getItem(personId);
+
+        // En mode EC, charge le quota de suggestions existantes
+        if (fromUrl) {
+            try {
+                const creatorPropId = a.omk.getPropId('dcterms:creator');
+                const suggestions   = a.omk.searchItems(
+                    `resource_class_id[]=${cfg.idClassKW}` +
+                    `&property[0][property]=${creatorPropId}&property[0][type]=res&property[0][text]=${cfg.creatorId}`
+                );
+                suggestedKwCount = Array.isArray(suggestions) ? suggestions.length : 0;
+            } catch (e) { suggestedKwCount = 0; }
+            updateSuggestQuotaDisplay();
+        }
 
         // Vérifie que le type correspond bien à une personne autorisée
         if (cfg.personTypeAllow != person['@type'][1]) {
@@ -776,6 +1172,18 @@ async function loadPerson(personId) {
         } else {
             document.getElementById('noallowType').classList.add('hidden');
 
+            // Vérifie l'accès labo pour les opérateurs restreints
+            if (allowedLabIds !== null) {
+                const personLabIds = (person['dcterms:isPartOf'] || [])
+                    .map(v => parseInt(v.value_resource_id))
+                    .filter(Boolean);
+                if (!personLabIds.some(id => allowedLabIds.includes(id))) {
+                    toast("Accès refusé — cette personne n'appartient pas à vos laboratoires", 'err');
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const personLabel   = getLabel(person);
             const propSourceId  = a.omk.getPropId('dcterms:source');
             const rtExpertiseId = a.omk.getRtId('Expertise');
@@ -783,7 +1191,7 @@ async function loadPerson(personId) {
             document.getElementById('personBanner').innerHTML = `
                 <div class="person-banner">
                     <div>
-                        <button class="btn btn-ghost btn-sm btn-back" onclick="showBrowse(); person=null;">&#8592; Retour à la liste</button>
+                        ${fromUrl ? '' : '<button class="btn btn-ghost btn-sm btn-back" onclick="showBrowse(); person=null;">&#8592; Retour à la liste</button>'}
                         <h3>${esc(personLabel)}</h3>
                         <span>ID : ${personId} &mdash; </span>
                     </div>
@@ -795,9 +1203,9 @@ async function loadPerson(personId) {
                 </div>`;
             document.getElementById('personBanner').classList.remove('hidden');
 
-            // 2. Récupère les concepts via toutes les propriétés configurées
-            const propList  = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean);
-            const seenIds   = new Set();
+            // Récupère les concepts via toutes les propriétés configurées
+            const propList    = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean);
+            const seenIds     = new Set();
             const conceptVals = propList.flatMap(prop =>
                 (person[prop] || [])
                     .filter(v => (v.type === 'resource:item' || v.type === 'resource') && v.value_resource_id)
@@ -810,18 +1218,30 @@ async function loadPerson(personId) {
 
             if (!conceptVals.length) { showEmpty(); setLoading(false); return; }
 
-            // 3. Pré-charge les expertises existantes pour cette personne
+            // Pré-charge les expertises existantes pour cette personne
             let existingExpertises = [];
             try {
-                const r = a.omk.searchItems(`property[0][joiner]=and&property[0][property]=${propSourceId}&property[0][type]=res&property[0][text]=${personId}&resource_template_id[]=${rtExpertiseId}`);
+                const r = a.omk.searchItems(
+                    `property[0][joiner]=and&property[0][property]=${propSourceId}` +
+                    `&property[0][type]=res&property[0][text]=${personId}` +
+                    `&resource_template_id[]=${rtExpertiseId}`
+                );
                 existingExpertises = Array.isArray(r) ? r : [];
             } catch (e) {
                 console.warn('expertises fetch failed:', e.message);
             }
 
-            // 4. Construit la liste finale des mots-clefs
+            // Construit la liste finale des mots-clefs
             keywords = conceptVals.map(c => {
-                c.expertises = existingExpertises.filter(e => e['valo:expertise'][0].value_resource_id == c.value_resource_id);
+                c.expertises = existingExpertises.filter(e =>
+                    e['valo:expertise'][0].value_resource_id == c.value_resource_id
+                );
+                // En mode lecture seule (DL), masque sa propre ligne de note
+                if (window._dlReadOnly) {
+                    c.expertises = c.expertises.filter(e =>
+                        String(e['dcterms:creator']?.[0]?.value_resource_id) !== String(cfg.creatorId)
+                    );
+                }
                 formatKeyword(c);
                 return c;
             });
@@ -831,7 +1251,6 @@ async function loadPerson(personId) {
 
     } catch (e) {
         toast('Erreur : ' + e.message, 'err');
-        console.error(e);
     } finally {
         sortKeywords('rank', -1);
         setLoading(false);
@@ -845,7 +1264,6 @@ async function loadPerson(personId) {
 
 function formatKeyword(c) {
     c.hasExpert = false;
-    // Intègre l'annotation directe Omeka S si présente
     if (c['@annotation']) c.expertises.unshift(c['@annotation']);
     c.rank = d3.sum(c.expertises, e => {
         formatExpertise(e);
@@ -853,8 +1271,9 @@ function formatKeyword(c) {
         e.kw = c.value_resource_id;
         return e.rank;
     });
-    // Ajoute un slot placeholder si le créateur n'a pas encore d'expertise
-    if (!c.hasExpert) c.expertises.push({
+    // Slot placeholder si le créateur n'a pas encore d'expertise
+    // (masqué en mode lecture seule — le DL ne peut pas noter)
+    if (!c.hasExpert && !window._dlReadOnly) c.expertises.push({
         rank: 0, cls: 'pos', sign: '', kw: c.value_resource_id,
         creatorId: cfg.creatorId, creatorTitle: creator['o:title'], created: '-'
     });
@@ -863,13 +1282,17 @@ function formatKeyword(c) {
 }
 
 function formatExpertise(e) {
-    const lastRank = e[cfg.rankProp].length - 1;
-    e.rank        = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][lastRank]['@value']) : 0;
-    e.cls         = e.rank > 0 ? 'pos' : 'neg';
-    e.sign        = e.rank > 0 ? '+' : '';
-    e.creatorId   = e['dcterms:creator'] ? e['dcterms:creator'][0].value_resource_id : 'scanr';
-    e.creatorTitle = e['dcterms:creator'] ? e['dcterms:creator'][0].display_title    : 'ScanR Top Concept';
-    e.created     = e['o:created']       ? new Date(e['o:created']['@value']).toLocaleDateString() : '-';
+    const lastRank  = e[cfg.rankProp].length - 1;
+    e.rank          = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][lastRank]['@value']) : 0;
+    e.cls           = e.rank > 0 ? 'pos' : 'neg';
+    e.sign          = e.rank > 0 ? '+' : '';
+    e.creatorId    = e['dcterms:creator'] ? e['dcterms:creator'][0].value_resource_id : 'scanr';
+    // En mode EC/DL, on anonymise les chargées de valo sauf l'utilisateur connecté lui-même
+    const rawName  = e['dcterms:creator'] ? e['dcterms:creator'][0].display_title : 'ScanR Top Concept';
+    const isSelf   = String(e.creatorId) === String(cfg.creatorId);
+    const isOp     = e.creatorId !== 'scanr' && !isSelf;
+    e.creatorTitle = (fromUrl || fromDL) && isOp ? 'Proposition du SVR' : rawName;
+    e.created       = e['o:created']       ? new Date(e['o:created']['@value']).toLocaleDateString() : '-';
 }
 
 
@@ -889,15 +1312,13 @@ function renderKeywords() {
         updateSortButtons();
     }
 
-    // Auto-masquage : affiche les 20 premiers, masque les suivants avec rank < 5
-    const textActive = filterState.text.trim().length > 0;
-    const shouldAutoHide = autoHideLow && keywords.length > 20 && !textActive;
-    const beyond20       = keywords.slice(20);
-    const hiddenByAuto   = shouldAutoHide ? beyond20.filter(kw => kw.rank < 5) : [];
-    const hiddenIds      = new Set(hiddenByAuto.map(kw => kw.value_resource_id));
+    // Auto-masquage : au-delà de 20 mots-clefs, masque ceux avec rank < 5
+    const textActive      = filterState.text.trim().length > 0;
+    const shouldAutoHide  = autoHideLow && keywords.length > 20 && !textActive;
+    const hiddenByAuto    = shouldAutoHide ? keywords.slice(20).filter(kw => kw.rank < 5) : [];
+    const hiddenIds       = new Set(hiddenByAuto.map(kw => kw.value_resource_id));
     const visibleKeywords = shouldAutoHide ? keywords.filter(kw => !hiddenIds.has(kw.value_resource_id)) : keywords;
 
-    // Bandeau d'info sur les masqués
     const banner = document.getElementById('autoHideBanner');
     if (hiddenByAuto.length > 0) {
         document.getElementById('autoHideMsg').textContent =
@@ -947,35 +1368,35 @@ function renderExpertise(kw) {
     sliderWrap.append('input')
         .attr('type', 'range').attr('min', -100).attr('max', 100).attr('step', 1)
         .attr('value', d => d.rank)
-        //.attr('disabled', d => d.creatorId == cfg.creatorId ? null : true)
-        //.style('cursor',  d => d.creatorId == cfg.creatorId ? 'pointer' : 'not-allowed')
-        .on('input',  onSlider)
-        .on('change', onSlider);
+        .attr('disabled', window._dlReadOnly ? true : null)
+        .on('input',  window._dlReadOnly ? null : onSlider)
+        .on('change', window._dlReadOnly ? null : onSlider);
 
     kw.append('div').attr('class', 'slider-labels')
         .html(`<span class="neg-lbl">&minus;100</span><span>0</span><span class="pos-lbl">+100</span>`);
     kw.append('div').attr('class', 'save-status').attr('id', d => 'ss-' + d.value_resource_id);
 
-    // Boutons d'action selon que le créateur a déjà une expertise ou non
-    let barButton = kw.append('div').attr('class', 'rank-button');
-    barButton.append('button')
-        .attr('id',    d => 'btnCreate' + d.value_resource_id)
-        .attr('class', 'btn btn-success hidden')
-        .style('float', 'left')
-        .text('Ajouter')
-        .on('click', createExpertise);
-    barButton.append('button')
-        .attr('id',    d => 'btnUpdate' + d.value_resource_id)
-        .attr('class', 'btn btn-warn hidden')
-        .style('display', 'inline')
-        .text('Modifier')
-        .on('click', updateExpertise);
-    barButton.append('button')
-        .attr('id',    d => 'btnDelete' + d.value_resource_id)
-        .attr('class', d => 'btn btn-danger' + (d.hasExpert ? '' : ' hidden'))
-        .style('float', 'right')
-        .text('Supprimer')
-        .on('click', deleteExpertise);
+    if (!window._dlReadOnly) {
+        let barButton = kw.append('div').attr('class', 'rank-button');
+        barButton.append('button')
+            .attr('id',    d => 'btnCreate' + d.value_resource_id)
+            .attr('class', 'btn btn-success hidden')
+            .style('float', 'left')
+            .text('Ajouter')
+            .on('click', createExpertise);
+        barButton.append('button')
+            .attr('id',    d => 'btnUpdate' + d.value_resource_id)
+            .attr('class', 'btn btn-warn hidden')
+            .style('display', 'inline')
+            .text('Modifier')
+            .on('click', updateExpertise);
+        barButton.append('button')
+            .attr('id',    d => 'btnDelete' + d.value_resource_id)
+            .attr('class', d => 'btn btn-danger' + (d.hasExpert ? '' : ' hidden'))
+            .style('float', 'right')
+            .text('Supprimer')
+            .on('click', deleteExpertise);
+    }
 }
 
 
@@ -984,14 +1405,14 @@ function renderExpertise(kw) {
 // ──────────────────────────────────────────────
 
 function getExpertiseValues(d, update = false, create = false) {
-    let rank  = create ? d.rank : document.getElementById(`rv-${d.value_resource_id}-${cfg.creatorId}`).innerText,
-        titre = `Expertise - ${d.display_title} = ${rank} - pour ${person['o:title']} fait par ${creator['o:title']} le ${new Date().toLocaleDateString()}`,
-        data  = {
-            'o:resource_template': 'Expertise',
-            'o:resource_class':    'valo:Expertises_all',
-            'dcterms:title':       titre,
-            'curation:rank':       rank,
-        };
+    const rank  = create ? d.rank : document.getElementById(`rv-${d.value_resource_id}-${cfg.creatorId}`).innerText;
+    const titre = `Expertise - ${d.display_title} = ${rank} - pour ${person['o:title']} fait par ${creator['o:title']} le ${new Date().toLocaleDateString()}`;
+    const data  = {
+        'o:resource_template': 'Expertise',
+        'o:resource_class':    'valo:Expertises_all',
+        'dcterms:title':       titre,
+        'curation:rank':       rank,
+    };
     if (!update) {
         data['dcterms:creator'] = { rid: cfg.creatorId };
         data['valo:expertise']  = { rid: d.value_resource_id };
@@ -1001,28 +1422,25 @@ function getExpertiseValues(d, update = false, create = false) {
 }
 
 function showNewExpertise(d, ne, del = false) {
-    let kw = d3.select('#kw-card-' + d.value_resource_id),
-        newExpertise = [];
-    d.expertises.forEach(element => {
+    let kw = d3.select('#kw-card-' + d.value_resource_id);
+    d.expertises = d.expertises.reduce((acc, element) => {
         if (parseInt(element.creatorId) == ne['dcterms:creator'][0].value_resource_id) {
-            if (!del) newExpertise.push(ne);
-        } else if (element.creatorId != 'scanr') {
-            newExpertise.push(element);
+            // Remplace ou supprime l'expertise du créateur concerné
+            if (!del) acc.push(ne);
+        } else {
+            // Conserve toutes les autres expertises (y compris ScanR)
+            acc.push(element);
         }
-    });
-    d.expertises = newExpertise;
+        return acc;
+    }, []);
     formatKeyword(d);
-    kw.selectAll('.slider').remove();
-    kw.selectAll('.slider-wrap').remove();
-    kw.selectAll('.slider-labels').remove();
-    kw.selectAll('.save-status').remove();
-    kw.selectAll('.rank-button').remove();
+    kw.selectAll('.slider, .slider-wrap, .slider-labels, .save-status, .rank-button').remove();
     renderExpertise(kw);
 }
 
 function setRankForKeyword(d) {
     d.rank = 0;
-    let card = d3.select('#kw-card-' + d.value_resource_id);
+    const card = d3.select('#kw-card-' + d.value_resource_id);
     card.selectAll('.rank-val').each(rv => { d.rank += rv.rank; });
     d.cls  = d.rank > 0 ? 'pos' : 'neg';
     d.sign = d.rank > 0 ? '+' : '';
@@ -1030,27 +1448,24 @@ function setRankForKeyword(d) {
 }
 
 function getCreatorExpertise(d) {
-    return d.expertises.filter(element => parseInt(element.creatorId) == cfg.creatorId)[0];
+    return d.expertises.find(e => parseInt(e.creatorId) == cfg.creatorId);
 }
 
 async function createExpertise(e, d) {
-    let data = getExpertiseValues(d),
-        ne   = await a.omk.createItem(data);
+    const ne = await a.omk.createItem(getExpertiseValues(d));
     showNewExpertise(d, ne);
     setRankForKeyword(d);
 }
 
 async function updateExpertise(e, d) {
-    let data = getExpertiseValues(d, true),
-        exp  = getCreatorExpertise(d),
-        ne   = await a.omk.updateRessource(exp['o:id'], data);
+    const ne = await a.omk.updateRessource(getCreatorExpertise(d)['o:id'], getExpertiseValues(d, true));
     showNewExpertise(d, ne);
     setRankForKeyword(d);
 }
 
 async function deleteExpertise(e, d) {
-    let exp = getCreatorExpertise(d),
-        de  = await a.omk.deleteItem(exp);
+    const exp = getCreatorExpertise(d);
+    await a.omk.deleteItem(exp);
     showNewExpertise(d, exp, true);
     setRankForKeyword(d);
     d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
@@ -1070,9 +1485,9 @@ function onSlider(e, kw) {
         d3.select('#btnCreate' + kw.value_resource_id).attr('class', 'btn btn-success');
         d3.select('#btnUpdate' + kw.value_resource_id).attr('class', 'btn btn-warn hidden');
     }
-    const cls  = rank > 0 ? 'pos' : rank < 0 ? 'neg' : '';
+    const cls = rank > 0 ? 'pos' : rank < 0 ? 'neg' : '';
     const sign = rank > 0 ? '+' : '';
-    const rv   = document.getElementById(`rv-${kw.value_resource_id}-${cfg.creatorId}`);
+    const rv  = document.getElementById(`rv-${kw.value_resource_id}-${cfg.creatorId}`);
     rv.className   = `rank-val ${cls}`;
     rv.textContent = `${sign}${rank}`;
     document.getElementById('kw-card-' + kw.value_resource_id).className = `kw-card ${cls}`;
@@ -1120,10 +1535,12 @@ function toast(msg, type = 'info') {
     }, 3200);
 }
 
-// Expose showBrowse globalement (utilisé dans le onclick inline du personBanner)
+// Expose showBrowse globalement (utilisé dans le onclick inline du personBanner).
+// Défini ici en synchrone — lockEcMode/lockDlMode l'écrasent ensuite en async si nécessaire.
 window.showBrowse = () => { person = null; showBrowse(); };
 
 </script>
+
 
 </body>
 </html>

@@ -497,6 +497,32 @@
             margin-bottom: 1.2rem;
         }
         .browse-header h2 { margin: 0; }
+        #btnCopyAllLinks {
+            margin-left: auto;
+            font-size: 1.1rem;
+            padding: .25rem .5rem;
+            opacity: .55;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            transition: opacity .15s, transform .1s;
+            line-height: 1;
+        }
+        #btnCopyAllLinks:hover { opacity: 1; transform: scale(1.15); }
+        .dl-btn-zone {
+            display: flex;
+            align-items: center;
+            gap: .4rem;
+            flex-wrap: wrap;
+        }
+        .dl-btn-zone select {
+            padding: .3rem .65rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: .78rem;
+            background: var(--card-bg);
+            color: var(--text);
+        }
         .browse-filters select {
             padding: .45rem .8rem;
             border: 1px solid var(--border);
@@ -633,3 +659,60 @@
             background: var(--accent);
             color: #fff;
         }
+        /* ── BADGE DL DANS LE BROWSE ── */
+        .browse-dl-badge {
+            display: inline-flex;
+            align-items: center;
+            font-size: .68rem;
+            font-weight: 700;
+            padding: .1rem .4rem;
+            border-radius: 4px;
+            background: var(--accent);
+            color: #fff;
+            margin-left: .5rem;
+            vertical-align: middle;
+            letter-spacing: .04em;
+        }
+        .browse-item.is-dl {
+            border-left: 3px solid var(--accent);
+        }
+
+        /* ── ENCADRÉ DIRECTEURS ── */
+        .dl-zone {
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--accent);
+            border-radius: 8px;
+            padding: .6rem 1rem;
+            margin-bottom: .6rem;
+            background: transparent;
+        }
+        .dl-zone-title {
+            font-size: .68rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--muted);
+            margin-bottom: .4rem;
+        }
+        .dl-zone-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: .3rem 0;
+        }
+        .dl-zone-row + .dl-zone-row { border-top: 1px solid var(--border); }
+        .dl-zone-name {
+            font-weight: 500;
+            font-size: .88rem;
+            flex: 1;
+            color: var(--accent);
+        }
+        .dl-zone-actions { display: flex; gap: .4rem; flex-shrink: 0; }
+        .dl-send-btn {
+            font-size: .75rem !important;
+            padding: .2rem .65rem !important;
+            opacity: .85;
+        }
+        .dl-send-btn:hover { opacity: 1; }
+        .dl-zone-empty { font-size: .82rem; color: var(--muted); font-style: italic; }
