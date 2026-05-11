@@ -716,3 +716,68 @@
         }
         .dl-send-btn:hover { opacity: 1; }
         .dl-zone-empty { font-size: .82rem; color: var(--muted); font-style: italic; }
+        /* ── SUGGESTION MOT-CLEF ── */
+        .kw-suggest-quota {
+            font-size: .72rem;
+            color: var(--muted);
+            margin-top: .25rem;
+            text-align: right;
+        }
+        .kw-suggest-quota.quota-full { color: var(--danger); }
+        .ac-create {
+            color: var(--accent);
+            font-style: italic;
+            border-top: 1px solid var(--border);
+            margin-top: .2rem;
+            padding-top: .4rem;
+        }
+        .ac-create:hover { background: var(--accent); color: #fff; font-style: normal; }
+        .ac-quota-full { opacity: .5; cursor: default !important; }
+
+        /* ── AUTOCOMPLETE NO RESULT ── */
+        .ac-no-result {
+            color: var(--muted);
+            font-style: italic;
+            font-size: .82rem;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        /* ── GROUPES PAR AXE ── */
+        .browse-axe {
+            margin-bottom: .5rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .browse-axe-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: .6rem 1rem;
+            font-size: .8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: var(--muted);
+            cursor: pointer;
+            user-select: none;
+            background: var(--card-bg);
+            list-style: none;
+        }
+        .browse-axe-title::-webkit-details-marker { display: none; }
+        .browse-axe-title::before {
+            content: '▶';
+            font-size: .6rem;
+            margin-right: .5rem;
+            transition: transform .15s;
+        }
+        details.browse-axe[open] .browse-axe-title::before { transform: rotate(90deg); }
+        .browse-axe-count {
+            font-size: .7rem;
+            font-weight: 400;
+            opacity: .6;
+            margin-left: .4rem;
+        }
+        .browse-axe-body { padding: .3rem 0; }
+        .browse-axe-body .browse-item { border-radius: 0; border-left: none; border-right: none; border-top: none; }

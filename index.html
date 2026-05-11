@@ -235,6 +235,7 @@ const DEFAULTS = {
     idClassPerson:   0,
     idClassKW:       0,
     idClassLab:      0,
+    idClassAxe:      0,
     role:            'operator', // 'operator' | 'DL'
 };
 
@@ -418,6 +419,7 @@ async function saveSettings() {
     cfg.idClassPerson = a.omk.getClassByTerm(cfg.personTypeAllow)['o:id'];
     cfg.idClassKW     = a.omk.getClassByTerm('skos:Concept')['o:id'];
     cfg.idClassLab    = a.omk.getClassByTerm('valo:Laboratoire')['o:id'];
+    cfg.idClassAxe    = a.omk.getClassByTerm('valo:Axe')?.['o:id'] || 0;
     creator           = a.omk.getItem(cfg.creatorId);
 
     // Charge tous les labos (nécessaire pour la détection du rôle DL)
@@ -584,11 +586,12 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
             );
             kwAcIndex = -1;
 
-            // Option "Créer" — uniquement en mode EC si quota disponible
-            const canSuggest  = fromUrl && suggestedKwCount < pa.maxSuggestedKw;
-            const exactExists = items.some(i => getLabel(i).toLowerCase() === query.trim().toLowerCase());
-            const createOption = fromUrl && !exactExists
-                ? canSuggest
+            // Option "Créer" — disponible pour tous si quota non atteint
+            // Le quota ne s'applique qu'en mode EC (fromUrl)
+            const quotaReached = fromUrl && suggestedKwCount >= pa.maxSuggestedKw;
+            const exactExists  = items.some(i => getLabel(i).toLowerCase() === query.trim().toLowerCase());
+            const createOption = !exactExists
+                ? !quotaReached
                     ? `<div class="autocomplete-item ac-create" data-create="${esc(query.trim())}">
                         ➕ Créer « ${esc(query.trim())} »
                        </div>`
@@ -597,9 +600,14 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
                        </div>`
                 : '';
 
+            // En mode EC sans résultat, affiche quand même la dropdown avec l'option créer
             if (!items.length && !createOption) { dropdown.classList.add('hidden'); return; }
 
-            dropdown.innerHTML = items.map(item => {
+            const noResultMsg = (!items.length && createOption)
+                ? `<div class="autocomplete-item ac-no-result">Aucun mot-clef correspondant</div>`
+                : '';
+
+            dropdown.innerHTML = noResultMsg + items.map(item => {
                 const label = getLabel(item);
                 const id    = item['o:id'];
                 return `<div class="autocomplete-item" data-id="${id}" data-label="${esc(label)}">
@@ -625,7 +633,7 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
 
 document.getElementById('kwSearchInput').addEventListener('keydown', function (e) {
     const dropdown = document.getElementById('kwAcDropdown');
-    const items    = dropdown.querySelectorAll('.autocomplete-item');
+    const items    = dropdown.querySelectorAll('.autocomplete-item[data-id], .ac-create');
     if (!items.length) return;
     if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -638,7 +646,15 @@ document.getElementById('kwSearchInput').addEventListener('keydown', function (e
     } else if (e.key === 'Enter') {
         e.preventDefault();
         const active = dropdown.querySelector('.ac-active') || items[0];
-        if (active) addKeyword(parseInt(active.dataset.id), active.dataset.label);
+        if (!active) return;
+        if (active.classList.contains('ac-create')) {
+            // Création d'un nouveau concept
+            document.getElementById('kwSearchInput').value = '';
+            dropdown.classList.add('hidden');
+            suggestNewKeyword(active.dataset.create);
+        } else {
+            addKeyword(parseInt(active.dataset.id), active.dataset.label);
+        }
     } else if (e.key === 'Escape') {
         dropdown.classList.add('hidden');
     }
@@ -731,6 +747,7 @@ function resetFilter() {
     filterState.status = 'all';
     autoHideLow        = true;
     document.getElementById('kwFilterText').value = '';
+    document.getElementById('kwFilterBar').classList.remove('hidden');
     document.querySelectorAll('#kwFilterBar .chip').forEach(b => b.className = 'chip');
     document.querySelector('#kwFilterBar .chip[data-filter="all"]').classList.add('active');
     document.getElementById('kwFilterCount').textContent = '';
@@ -742,7 +759,7 @@ function resetFilter() {
 // AJOUT D'UN MOT-CLEF
 // ──────────────────────────────────────────────
 
-async function addKeyword(conceptId, conceptLabel) {
+async function addKeyword(conceptId, conceptLabel, silent = false) {
     if (!person) { toast("Chargez d'abord une personne", 'err'); return; }
 
     // Vérifie le doublon sur toutes les propriétés configurées
@@ -768,7 +785,7 @@ async function addKeyword(conceptId, conceptLabel) {
 
         await loadPerson(person['o:id']);
         sortKeywords('rank', -1);
-        toast(`« ${conceptLabel} » ajouté`, 'ok');
+        if (!silent) toast(`« ${conceptLabel} » ajouté`, 'ok');
     } catch (e) {
         toast('Erreur : ' + e.message, 'err');
         setLoading(false);
@@ -816,10 +833,19 @@ function loadBrowsePersons(labId, page) {
         `&property[0][type]=res&property[0][text]=${labId}` +
         `&sort_by=title&sort_order=asc`;
     const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
-    renderBrowseList(items, hasMore);
+
+    // Charge les items axe du labo pour avoir leurs labels
+    const lab     = labs.find(l => l['o:id'] === labId);
+    const axeVals = lab ? (lab['valo:hasAxe'] || []) : [];
+    const axes    = axeVals
+        .filter(v => v.value_resource_id)
+        .map(v => a.omk.getItem(v.value_resource_id))
+        .filter(Boolean);
+
+    renderBrowseList(items, hasMore, axes, labId);
 }
 
-function renderBrowseList(items, hasMore) {
+function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
     const list = document.getElementById('browseList');
     if (!items.length) {
         list.innerHTML = `<p class="browse-empty">Aucun EC trouvé pour ce laboratoire.</p>`;
@@ -827,11 +853,12 @@ function renderBrowseList(items, hasMore) {
         return;
     }
 
-    // Index des DLs du labo courant pour badge et bouton rapide
-    const lab      = labs.find(l => l['o:id'] === browseLabId);
-    const dlIds    = new Set((lab ? (lab['valo:directeurs'] || []) : []).map(v => v.value_resource_id));
+    // Index des DLs du labo courant pour badge
+    const lab   = labs.find(l => l['o:id'] === labId);
+    const dlIds = new Set((lab ? (lab['valo:directeurs'] || []) : []).map(v => v.value_resource_id));
 
-    list.innerHTML = items.map(item => {
+    // Génère le HTML d'un item EC
+    function ecItemHTML(item) {
         const label   = getLabel(item);
         const id      = item['o:id'];
         const kwCount = countKeywords(item);
@@ -846,8 +873,55 @@ function renderBrowseList(items, hasMore) {
                 <button class="btn btn-sm btn-ghost btn-copy-link" data-link="${link}" title="Copier le lien EC">🔗</button>
             </div>
         </div>`;
-    }).join('');
+    }
 
+    // Groupe les ECs par axe
+    const axeMap  = new Map(); // axeId → [items]
+    const noAxe   = [];
+
+    if (axes.length) {
+        // Construit un index axeId → axe item
+        const axeIndex = new Map(axes.map(ax => [ax['o:id'], ax]));
+
+        items.forEach(item => {
+            const hasPart = (item['dcterms:hasPart'] || [])
+                .filter(v => v.value_resource_id && axeIndex.has(v.value_resource_id));
+            if (hasPart.length) {
+                hasPart.forEach(v => {
+                    if (!axeMap.has(v.value_resource_id)) axeMap.set(v.value_resource_id, []);
+                    axeMap.get(v.value_resource_id).push(item);
+                });
+            } else {
+                noAxe.push(item);
+            }
+        });
+    }
+
+    // Rendu — groupé si des axes existent, liste plate sinon
+    if (axes.length) {
+        let html = '';
+        axes.forEach(ax => {
+            const axItems = axeMap.get(ax['o:id']) || [];
+            if (!axItems.length) return;
+            const axLabel = getLabel(ax);
+            html += `<details class="browse-axe" open>
+                <summary class="browse-axe-title">${esc(axLabel)} <span class="browse-axe-count">${axItems.length} EC${axItems.length > 1 ? 's' : ''}</span></summary>
+                <div class="browse-axe-body">${axItems.map(ecItemHTML).join('')}</div>
+            </details>`;
+        });
+        if (noAxe.length) {
+            html += `<details class="browse-axe" open>
+                <summary class="browse-axe-title">Sans équipe <span class="browse-axe-count">${noAxe.length} EC${noAxe.length > 1 ? 's' : ''}</span></summary>
+                <div class="browse-axe-body">${noAxe.map(ecItemHTML).join('')}</div>
+            </details>`;
+        }
+        list.innerHTML = html;
+    } else {
+        // Pas d'axes — liste plate habituelle
+        list.innerHTML = items.map(ecItemHTML).join('');
+    }
+
+    // Listeners communs
     list.querySelectorAll('.btn-copy-link').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
@@ -856,7 +930,6 @@ function renderBrowseList(items, hasMore) {
                 .catch(() => toast('Impossible de copier', 'err'));
         });
     });
-
     list.querySelectorAll('.browse-item').forEach(el => {
         el.addEventListener('click', () => {
             document.getElementById('personSearchInput').value = '';
@@ -871,14 +944,14 @@ function renderBrowseList(items, hasMore) {
     document.getElementById('btnBrowsePrev').disabled = browsePage <= 1;
     document.getElementById('btnBrowseNext').disabled = !hasMore;
 
-    // Bouton "Copier tous les liens" — opérateur et DL
+    // Bouton "Copier tous les liens"
     let copyAllBtn = document.getElementById('btnCopyAllLinks');
     if (!copyAllBtn) {
-        copyAllBtn = document.createElement('button');
-        copyAllBtn.id        = 'btnCopyAllLinks';
-        copyAllBtn.className   = '';
+        copyAllBtn            = document.createElement('button');
+        copyAllBtn.id         = 'btnCopyAllLinks';
+        copyAllBtn.className  = '';
         copyAllBtn.textContent = '📋';
-        copyAllBtn.title       = 'Copier tous les liens';
+        copyAllBtn.title      = 'Copier tous les liens';
         document.getElementById('browseSection').querySelector('.browse-header').appendChild(copyAllBtn);
     }
     copyAllBtn.onclick = () => {
@@ -1046,15 +1119,23 @@ function sendDLEmail(items, dlMail = '', dlName = '', dlId = null) {
     const labName = lab ? getLabel(lab) : 'votre laboratoire';
     const dlLink  = dlId ? buildDlLink(browseLabId, dlId) : null;
     const ecLink  = dlId ? buildEcLink(dlId) : null;
+    // ── Corps de l'email — modifiable ici si besoin de personnaliser le message ──
     const body    = encodeURIComponent(
         `Bonjour${dlName ? ' ' + dlName : ''},\n\n` +
+        `Dans le cadre de la valorisation des activités de recherche du laboratoire ${labName}, ` +
+        `nous souhaitons vous associer à la validation de vos domaines d'expertise.\n\n` +
+        `À partir de vos publications, des domaines d'expertise vous ont été automatiquement attribués. ` +
+        `Nous vous invitons à vérifier que ces domaines vous représentent bien et à les ajuster si nécessaire. ` +
+        `Cela ne prend que quelques minutes.\n\n` +
         (dlLink
-            ? `En tant que directeur du laboratoire ${labName}, voici votre lien pour redistribuer les liens individuels à vos enseignants-chercheurs :\n${dlLink}\n\n`
+            ? `En tant que directeur du laboratoire, voici votre lien pour accéder à la liste de vos enseignants-chercheurs ` +
+              `et leur transmettre leur lien individuel :\n${dlLink}\n\n`
             : '') +
         (ecLink
-            ? `En tant qu'enseignant-chercheur, voici votre lien personnel pour noter vos mots-clefs :\n${ecLink}\n\n`
+            ? `En tant qu'enseignant-chercheur, voici également votre lien personnel ` +
+              `pour valider vos propres domaines d'expertise :\n${ecLink}\n\n`
             : '') +
-        `Bonne journée.`
+        `N'hésitez pas à nous contacter en cas de question.\n\nBien cordialement.`
     );
     const subject = encodeURIComponent(`Validation des mots-clefs — ${labName}`);
     window.location.href = `mailto:${dlMail}?subject=${subject}&body=${body}`;
@@ -1081,9 +1162,13 @@ async function suggestNewKeyword(label) {
             'dcterms:creator':    { rid: cfg.creatorId },
             'dcterms:description':  'suggestion',
         });
+        if (!newConcept || !newConcept['o:id']) {
+            throw new Error('La création du concept a échoué — réponse inattendue du serveur');
+        }
         suggestedKwCount++;
         updateSuggestQuotaDisplay();
-        await addKeyword(newConcept['o:id'], label);
+        // Supprime le toast d'addKeyword pour éviter le doublon — on affiche le nôtre après
+        await addKeyword(newConcept['o:id'], label, true);
         toast(`« ${label} » suggéré et ajouté`, 'ok');
     } catch (e) {
         toast('Erreur lors de la création : ' + e.message, 'err');
@@ -1092,7 +1177,7 @@ async function suggestNewKeyword(label) {
 }
 
 function updateSuggestQuotaDisplay() {
-    if (!fromUrl) return;
+    if (!fromUrl) return; // quota uniquement en mode EC
     const el        = document.getElementById('kwSuggestQuota');
     if (!el) return;
     const remaining = pa.maxSuggestedKw - suggestedKwCount;
@@ -1264,6 +1349,10 @@ async function loadPerson(personId) {
 
 function formatKeyword(c) {
     c.hasExpert = false;
+    // Nettoie le placeholder (objet local sans o:id) et l'annotation éventuelle
+    // avant de les ré-ajouter proprement — évite les doublons si formatKeyword
+    // est rappelé après un CRUD (showNewExpertise)
+    c.expertises = c.expertises.filter(e => e['o:id'] && e !== c['@annotation']);
     if (c['@annotation']) c.expertises.unshift(c['@annotation']);
     c.rank = d3.sum(c.expertises, e => {
         formatExpertise(e);
@@ -1292,7 +1381,7 @@ function formatExpertise(e) {
     const isSelf   = String(e.creatorId) === String(cfg.creatorId);
     const isOp     = e.creatorId !== 'scanr' && !isSelf;
     e.creatorTitle = (fromUrl || fromDL) && isOp ? 'Proposition du SVR' : rawName;
-    e.created       = e['o:created']       ? new Date(e['o:created']['@value']).toLocaleDateString() : '-';
+    e.created      = e['o:created'] ? new Date(e['o:created']['@value']).toLocaleDateString() : '-';
 }
 
 
@@ -1329,6 +1418,7 @@ function renderKeywords() {
     }
 
     document.getElementById('emptyState').classList.add('hidden');
+    document.getElementById('kwFilterBar').classList.remove('hidden');
     document.getElementById('kwCount').textContent = `${keywords.length} mot${keywords.length > 1 ? 's' : ''}`;
 
     d3.select('#kwGrid').selectAll('div').remove();
@@ -1339,10 +1429,12 @@ function renderKeywords() {
     let kwTitle = kw.append('div').attr('class', 'kw-name').text(d => d.display_title);
     kwTitle.append('span').attr('class', d => `rank-val-total ${d.cls}`).text(d => d.sign + d.rank);
     kw.append('div').attr('class', 'kw-prop-badge').text(d => d._sourceProp ? d._sourceProp.split(':').pop() : '');
-    kw.append('div').attr('class', 'kw-meta').html(d => d.expertises.length <= 0
-        ? `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>`
-        : `<span style="color:var(--success)">&#9679; ${d.expertises.length} Expertise(s) existante(s)</span>`
-    );
+    kw.append('div').attr('class', 'kw-meta').html(d => {
+        const realCount = d.expertises.filter(e => e['o:id']).length;
+        return !d.hasExpert
+            ? `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>`
+            : `<span style="color:var(--success)">&#9679; ${realCount} Expertise${realCount > 1 ? 's' : ''} existante${realCount > 1 ? 's' : ''}</span>`;
+    });
 
     renderExpertise(kw);
 
@@ -1501,8 +1593,9 @@ function onSlider(e, kw) {
 
 function setLoading(on) {
     document.getElementById('loadingState').classList.toggle('hidden', !on);
-    document.getElementById('kwSection').classList.toggle('hidden', on || !keywords.length);
+    // Ne masque kwSection que pendant le chargement — showEmpty gère l'état vide
     if (on) {
+        document.getElementById('kwSection').classList.add('hidden');
         document.getElementById('emptyState').classList.add('hidden');
         document.getElementById('saveBar').classList.add('hidden');
         document.getElementById('personBanner').classList.add('hidden');
@@ -1511,9 +1604,13 @@ function setLoading(on) {
 }
 
 function showEmpty() {
-    document.getElementById('kwSection').classList.add('hidden');
+    // Masque la grille et les filtres mais laisse l'input d'ajout accessible
+    document.getElementById('kwGrid').innerHTML = '';
+    document.getElementById('kwFilterBar').classList.add('hidden');
+    document.getElementById('autoHideBanner').classList.add('hidden');
     document.getElementById('emptyState').classList.remove('hidden');
-    document.getElementById('saveBar').classList.add('hidden');
+    document.getElementById('kwSection').classList.remove('hidden');
+    document.getElementById('saveBar').classList.remove('hidden');
 }
 
 function esc(s) {
