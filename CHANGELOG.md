@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2] — 2026-05-12
+ 
+### Améliorations
+ 
+**Navigation inter-outils (`index.html`, `main.css`)**
+Le titre de l'application dans le header est désormais cliquable et ouvre un menu déroulant listant les outils disponibles (`validExpertises`, `cleanKeywords`). L'outil courant est mis en évidence et non-cliquable. Le menu affiche également le numéro de version en bas. L'ancien `<select>` natif est remplacé par un dropdown custom cohérent visuellement avec le reste de l'interface.
+
 ## [0.2.1] — 2026-05-11
 
 ### Nouvelles fonctionnalités

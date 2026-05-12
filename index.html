@@ -12,9 +12,24 @@
 
 <!-- HEADER -->
 <header>
-    <h1>Validation des Expertises</h1>
+    <div class="app-switcher" id="appSwitcher">
+        <div class="app-switcher-icon" aria-hidden="true">
+            <span></span><span></span><span></span>
+        </div>
+        <h1>Validation des Expertises</h1>
+        <div class="app-dropdown" id="appDropdown">
+            <div class="app-dropdown-header">Outils</div>
+            <a class="app-dropdown-item" href="../validKeyword/">
+                <span class="app-dropdown-dot"></span>🧹 cleanKeywords
+            </a>
+            <div class="app-dropdown-item app-dropdown-item--active">
+                <span class="app-dropdown-dot"></span>✅ validExpertises
+            </div>
+            <div class="app-dropdown-version">v0.2.2</div>
+        </div>
+    </div>
     <h4>Expert : <span id="creator"></span></h4>
-    <button id="btnOpenSettings" class="btn btn-ghost" >&#9881; Paramètres</button>
+    <button id="btnOpenSettings" class="btn btn-ghost">&#9881; Paramètres</button>
 </header>
 <!-- TOASTS -->
 <div class="toasts" id="toasts"></div>
@@ -267,6 +282,15 @@ let cfg             = { ...DEFAULTS },
 // ──────────────────────────────────────────────
 
 d3.select('#btnOpenSettings').on('click', openSettings);
+
+// ── APP SWITCHER ──────────────────────────────
+const appSwitcher  = document.getElementById('appSwitcher');
+const appDropdown  = document.getElementById('appDropdown');
+appSwitcher.addEventListener('click', e => {
+    e.stopPropagation();
+    appDropdown.classList.toggle('app-dropdown--open');
+});
+document.addEventListener('click', () => appDropdown.classList.remove('app-dropdown--open'));
 d3.select('#btnSaveSettings').on('click', saveSettings);
 d3.select('#btnCloseSettings').on('click', closeSettings);
 
