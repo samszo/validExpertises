@@ -1,7 +1,7 @@
 export const pa = {
-        mail:          'valorisation@univ-paris8.fr',
+        mail:          '',
         apiOmk:        'https://valorisation.humanum-p8.fr/api/',
-        ident:         'YYT4dJSyzB3x30eeCU3V3eloXhWXBIVa',
+        ident:         '',
         key:           '',
         creatorId:     '',
         personTypeAllow:'valo:EnseignantChercheur',
@@ -10,6 +10,7 @@ export const pa = {
         ecKeyId:       'xEggeFEcuc5PZ0lhg4Z1TnCuueTezn9p',
         ecKeyCred:     'yL48yOBr4EWvnkAfrIn61IX6rrxvOG5Y',
         dlCanEdit:     false,  // true = le DL peut modifier les expertises des ECs de son labo
-        maxSuggestedKw: 3,     // nb max de nouveaux concepts qu'un EC peut suggérer
+        maxSuggestedKw: 10,     // nb max de nouveaux concepts qu'un EC peut suggérer
+        deadline:      '',     // date limite de validation (format JJ/MM/AA, vide = non affiché)
         "navbar":      null
 }

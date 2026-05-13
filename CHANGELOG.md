@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.2.3] — 2026-05-13
+ 
+### Nouvelles fonctionnalités
+ 
+**Liste globale des ECs sans laboratoire sélectionné (`index.html`, `main.css`)**
+Nouvelle option dans les Paramètres : "Afficher tous les ECs si aucun laboratoire sélectionné". Quand activée, le Browse charge l'ensemble des ECs du périmètre au lieu d'afficher un écran vide. Le périmètre opérateur est respecté via les filtres `dcterms:isPartOf`. La pagination fonctionne normalement.
+ 
+**Compteur d'ECs sans mot-clef par laboratoire (`index.html`, `main.css`)**
+Quand un laboratoire est sélectionné dans le Browse, un bandeau discret affiche le nombre total d'ECs et le nombre sans mot-clef (`"X ECs — Y sans mot-clef (Z%)"`) en rouge si non nul, en vert sinon. Ce compteur est calculé via `getAllItems` sur l'ensemble du labo (pas uniquement la page courante) et est désactivé en mode "tous les ECs" pour éviter un freeze au chargement initial.
+ 
+**Bouton ✉ — envoi d'email individuel aux ECs depuis la vue DL (`index.html`)**
+En mode DL, chaque ligne EC dans le Browse dispose d'un bouton ✉ qui génère un `mailto` pré-rempli (corps, objet, lien de validation personnel). Le bouton est grisé si `foaf:mbox` est absent sur l'item EC. Le template du mail EC est distinct du mail DL : plus direct, sans mention du rôle de direction.
+ 
+**Deadline configurable (`authParams.js`, `index.html`)**
+Nouveau champ `deadline` dans `authParams.js` et dans les Paramètres (format JJ/MM/AA). Quand renseignée, la date limite est incluse dans les deux templates email (DL et EC). Laisser vide pour ne pas l'afficher.
+ 
+### Améliorations
+ 
+**Réécriture des templates email (`index.html`)**
+`sendDLEmail()` entièrement réécrit : mention de ScanR (plateforme nationale), du préfiltrage SVR, ton plus naturel distinguant clairement le rôle DL et le lien EC personnel. Signature dynamique avec le nom de l'utilisateur connecté (`a.user['o:name']`). Objet du mail mis à jour. `sendEcEmail()` est une nouvelle fonction dédiée au mail DL → EC.
+ 
+**Indicateurs de chargement (`index.html`, `main.css`)**
+Spinner `⠋ Connexion en cours…` sur le bouton "Enregistrer" de la modale Paramètres pendant `saveSettings()`. Spinner inline `#browseLoading` avec `setTimeout` sur `loadBrowsePersons` et `loadBrowseAllPersons`. Message contextuel dans `#loadingState` : "Connexion en cours…" au lancement, "Chargement de [Nom]…" au chargement d'une fiche EC. Indicateur `• Recherche…` sur les deux champs d'autocomplete (recherche personne et ajout mot-clef) pendant le debounce.
+ 
+**Modale Paramètres restructurée (`index.html`, `main.css`)**
+Les 9 champs sont regroupés en deux sections ("Connexion" et "Configuration") avec grille 2 colonnes pour les paires clés/valeurs. Les 3 champs rarement modifiés (type personne, propriétés expertises, propriété rang) sont déplacés dans un accordéon "Paramètres avancés" fermé par défaut. La modale ne nécessite plus de scroll dans le cas d'usage courant.
+ 
+### Correctifs
+ 
+**Pagination en mode "tous les ECs" (`index.html`)**
+Les boutons Précédent/Suivant appelaient toujours `loadBrowsePersons(browseLabId)` même quand `browseLabId` était nul, provoquant une erreur silencieuse. Ils aiguillent désormais vers `loadBrowseAllPersons` ou `loadBrowsePersons` selon le contexte.
+ 
+**Paramètre `items` mort dans `sendDLEmail` (`index.html`)**
+Le premier paramètre `items` de `sendDLEmail` n'était jamais utilisé dans le corps de la fonction. Supprimé de la signature et du call site.
+ 
+**`foaf:mbox` — propriété email unifiée (`index.html`)**
+`ecItemHTML` utilisait `foaf:mailbox` au lieu de `foaf:mbox` pour récupérer l'email des ECs. Corrigé pour être cohérent avec la propriété effectivement utilisée en base et avec la récupération de l'email des DLs.
+ 
+
 ## [0.2.2] — 2026-05-12
  
 ### Améliorations

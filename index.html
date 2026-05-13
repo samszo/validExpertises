@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.2</div>
+            <div class="app-dropdown-version">v0.2.3</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -37,50 +37,75 @@
 <!-- SETTINGS MODAL -->
 <div class="overlay" id="settingsOverlay">
     <div class="modal">
-        <h2>&#9881; Configuration Omeka S</h2>
+        <h2>&#9881; Configuration</h2>
 
+        <!-- Connexion -->
+        <div class="cfg-section-title">Connexion</div>
         <div class="form-group">
             <label>URL de base de l'API</label>
-            <input type="url" id="cfgApiBase" placeholder="http://localhost/omk/api" />
+            <input type="url" id="cfgApiBase" placeholder="https://…/api/" />
         </div>
         <div class="form-group">
-            <label>Propriétaire — mail de l'utilisateur Omeka S</label>
+            <label>Mail de l'utilisateur Omeka S</label>
             <input type="mail" id="cfgPropMail" placeholder="ex : valorisation@univ-paris8.fr" />
         </div>
-        <div class="form-group">
-            <label>key_identity</label>
-            <input type="text" id="cfgKeyId" placeholder="Identifiant de la clé API" autocomplete="off" />
+        <div class="form-row-2">
+            <div class="form-group">
+                <label>key_identity</label>
+                <input type="text" id="cfgKeyId" placeholder="Identifiant" autocomplete="off" />
+            </div>
+            <div class="form-group">
+                <label>key_credential</label>
+                <input type="password" id="cfgKeyCred" placeholder="Credential" autocomplete="off" />
+            </div>
         </div>
-        <div class="form-group">
-            <label>key_credential</label>
-            <input type="password" id="cfgKeyCred" placeholder="Credential de la clé API" autocomplete="off" />
+
+        <!-- Configuration -->
+        <div class="cfg-section-title">Configuration</div>
+        <div class="form-row-2">
+            <div class="form-group">
+                <label>ID évaluateur</label>
+                <input type="number" id="cfgCreatorId" placeholder="ex : 42" min="1" />
+                <div class="form-hint">ID item Omeka S de l'évaluateur</div>
+            </div>
+            <div class="form-group">
+                <label>Date limite de validation</label>
+                <input type="text" id="cfgDeadline" placeholder="ex : 30/06/25" maxlength="8" />
+                <div class="form-hint">Format JJ/MM/AA — laisser vide si sans deadline</div>
+            </div>
         </div>
-        <div class="form-group">
-            <label>Personne — type autorisé</label>
-            <input type="text" id="cfgPersonTypeAllow" placeholder="valo:EnseignantChercheur"  />
-            <div class="form-hint">Type d'Item autorisé pour la personne</div>
+        <div class="form-group form-group--inline">
+            <input type="checkbox" id="cfgShowAllEcs" />
+            <label for="cfgShowAllEcs">Afficher tous les ECs si aucun laboratoire sélectionné</label>
         </div>
-        <div class="form-group">
-            <label>Personne — propriétés des expertises</label>
-            <input type="text" id="cfgPersonPropExp" placeholder="skos:hasTopConcept,dcterms:subject"  />
-            <div class="form-hint">Propriétés pour la liste des expertises, séparées par des virgules (ex. <code>skos:hasTopConcept,dcterms:subject</code>)</div>
+
+        <!-- Paramètres avancés -->
+        <div class="cfg-advanced-toggle" id="cfgAdvancedToggle">
+            <span class="cfg-advanced-arrow">▶</span> Paramètres avancés
         </div>
-        <div class="form-group">
-            <label>Évaluateur — ID item Omeka S (dcterms:creator)</label>
-            <input type="number" id="cfgCreatorId" placeholder="ex : 42" min="1" />
-            <div class="form-hint">Identifiant de l'item <code class="personTypeAllowCode">skos:hasTopConcept</code> dans Omeka S</div>
-        </div>
-        <div class="form-group">
-            <label>Propriété de rang (terme vocabulaire)</label>
-            <input type="text" id="cfgRankProp" value="curation:rank" />
-            <div class="form-hint">Terme de la propriété utilisée pour stocker la valeur d'expertise</div>
+        <div class="cfg-advanced-body hidden" id="cfgAdvancedBody">
+            <div class="form-group">
+                <label>Type de personne autorisé</label>
+                <input type="text" id="cfgPersonTypeAllow" placeholder="valo:EnseignantChercheur" />
+                <div class="form-hint">Type d'Item autorisé pour la personne</div>
+            </div>
+            <div class="form-group">
+                <label>Propriétés des expertises</label>
+                <input type="text" id="cfgPersonPropExp" placeholder="skos:hasTopConcept,dcterms:subject" />
+                <div class="form-hint">Séparées par des virgules (ex. <code>skos:hasTopConcept,dcterms:subject</code>)</div>
+            </div>
+            <div class="form-group">
+                <label>Propriété de rang</label>
+                <input type="text" id="cfgRankProp" value="curation:rank" />
+                <div class="form-hint">Terme de la propriété pour stocker la valeur d'expertise</div>
+            </div>
         </div>
 
         <div id="cfgErrors" class="cfg-errors hidden"></div>
 
         <div class="modal-actions">
-            <button id="btnCloseSettings" class="btn" style="background:var(--bg);color:var(--text)" >Annuler</button>
-            <button id="btnSaveSettings" class="btn btn-primary" >Enregistrer</button>
+            <button id="btnCloseSettings" class="btn" style="background:var(--bg);color:var(--text)">Annuler</button>
+            <button id="btnSaveSettings" class="btn btn-primary">Enregistrer</button>
         </div>
     </div>
 </div>
@@ -95,6 +120,7 @@
             <div class="autocomplete-wrap">
                 <input type="text" id="personSearchInput" placeholder="Rechercher une personne…"
                        autocomplete="off" />
+                <div id="personAcHint" class="ac-hint hidden"><span class="ac-hint-dot"></span>Recherche…</div>
                 <div id="personAcDropdown" class="autocomplete-dropdown hidden"></div>
             </div>
         </div>
@@ -106,7 +132,7 @@
     <!-- Chargement -->
     <div id="loadingState" class="loading-state hidden">
         <div class="spinner"></div>
-        <p style="margin-top:1rem">Chargement en cours…</p>
+        <p id="loadingMsg" style="margin-top:1rem">Chargement en cours…</p>
     </div>
 
     <!-- Vide -->
@@ -132,8 +158,12 @@
                 </select>
             </div>
         </div>
+        <div id="browseStats" class="browse-stats hidden"></div>
         <!-- Encadré directeurs du laboratoire -->
         <div id="dlZone" class="dl-zone hidden"></div>
+        <div id="browseLoading" class="browse-loading hidden">
+            <div class="spinner-sm"></div><span>Chargement…</span>
+        </div>
         <div id="browseList" class="browse-list"></div>
         <div id="browsePagination" class="browse-pagination hidden">
             <button id="btnBrowsePrev" class="btn btn-sm">&#8592; Précédent</button>
@@ -149,6 +179,7 @@
             <div class="kw-toolbar">
                 <div class="autocomplete-wrap">
                     <input type="text" id="kwSearchInput" placeholder="Ajouter un mot-clef…" autocomplete="off" />
+                    <div id="kwAcHint" class="ac-hint hidden"><span class="ac-hint-dot"></span>Recherche…</div>
                     <div id="kwAcDropdown" class="autocomplete-dropdown hidden"></div>
                     <div id="kwSuggestQuota" class="kw-suggest-quota hidden"></div>
                 </div>
@@ -252,6 +283,8 @@ const DEFAULTS = {
     idClassLab:      0,
     idClassAxe:      0,
     role:            'operator', // 'operator' | 'DL'
+    deadline:        pa.deadline,
+    showAllEcs:      false,      // afficher tous les ECs si aucun labo sélectionné
 };
 
 // o:id de la personne à charger depuis l'URL (lien EC)
@@ -293,6 +326,14 @@ appSwitcher.addEventListener('click', e => {
 document.addEventListener('click', () => appDropdown.classList.remove('app-dropdown--open'));
 d3.select('#btnSaveSettings').on('click', saveSettings);
 d3.select('#btnCloseSettings').on('click', closeSettings);
+
+document.getElementById('cfgAdvancedToggle').addEventListener('click', function () {
+    const body  = document.getElementById('cfgAdvancedBody');
+    const arrow = this.querySelector('.cfg-advanced-arrow');
+    const open  = !body.classList.contains('hidden');
+    body.classList.toggle('hidden', open);
+    arrow.textContent = open ? '▶' : '▼';
+});
 
 
 // ──────────────────────────────────────────────
@@ -354,6 +395,8 @@ function openSettings() {
     document.getElementById('cfgRankProp').value        = cfg.rankProp;
     document.getElementById('cfgPersonTypeAllow').value = cfg.personTypeAllow;
     document.getElementById('cfgPersonPropExp').value   = cfg.personPropExp;
+    document.getElementById('cfgDeadline').value        = cfg.deadline || '';
+    document.getElementById('cfgShowAllEcs').checked    = !!cfg.showAllEcs;
     document.querySelectorAll('#settingsOverlay .input-error').forEach(el => el.classList.remove('input-error'));
     const errEl = document.getElementById('cfgErrors');
     errEl.classList.add('hidden');
@@ -383,10 +426,17 @@ document.querySelectorAll('#settingsOverlay input').forEach(input => {
 });
 
 async function saveSettings() {
-    const errEl = document.getElementById('cfgErrors');
+    const errEl   = document.getElementById('cfgErrors');
+    const saveBtn = document.getElementById('btnSaveSettings');
     document.querySelectorAll('#settingsOverlay .input-error').forEach(el => el.classList.remove('input-error'));
     errEl.classList.add('hidden');
     errEl.innerHTML = '';
+
+    // Feedback dans la modale (ignoré en mode EC/DL où la modale n'est pas ouverte)
+    if (!fromUrl && !fromDL) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-sm"></span> Connexion en cours…';
+    }
 
     // En session EC ou DL (fromUrl/fromDL), cfg est déjà rempli — pas besoin de lire les inputs
     const vals = (fromUrl || fromDL) ? { ...cfg } : {
@@ -398,6 +448,8 @@ async function saveSettings() {
         rankProp:        (document.getElementById('cfgRankProp').value.trim() || 'curation:rank'),
         personTypeAllow:  document.getElementById('cfgPersonTypeAllow').value.trim(),
         personPropExp:    document.getElementById('cfgPersonPropExp').value.trim(),
+        deadline:         document.getElementById('cfgDeadline').value.trim(),
+        showAllEcs:       document.getElementById('cfgShowAllEcs').checked,
     };
 
     // Validation des champs obligatoires
@@ -416,6 +468,8 @@ async function saveSettings() {
             errEl.innerHTML = `<strong>Champs obligatoires manquants&nbsp;:</strong>
                 <ul>${missing.map(f => `<li>${f.label}</li>`).join('')}</ul>`;
             errEl.classList.remove('hidden');
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = 'Enregistrer';
         }
         return false;
     }
@@ -435,6 +489,8 @@ async function saveSettings() {
             document.getElementById('cfgKeyCred').classList.add('input-error');
             errEl.innerHTML = '<strong>Connexion échouée</strong> — vérifiez vos clés API.';
             errEl.classList.remove('hidden');
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = 'Enregistrer';
             openSettings();
         }
         return false;
@@ -497,6 +553,11 @@ async function saveSettings() {
 
     showSettings();
     closeSettings();
+    if (!fromUrl && !fromDL) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = 'Enregistrer';
+    }
+    document.getElementById('loadingMsg').textContent = 'Chargement en cours…';
     toast('Configuration enregistrée', 'ok');
 
     // Affiche le browse seulement hors mode EC/DL
@@ -528,8 +589,11 @@ document.getElementById('personSearchInput').addEventListener('input', function 
     selectedPersonId = null;
     const query    = this.value;
     const dropdown = document.getElementById('personAcDropdown');
-    if (!query.trim()) { dropdown.classList.add('hidden'); return; }
+    const hint     = document.getElementById('personAcHint');
+    if (!query.trim()) { dropdown.classList.add('hidden'); hint.classList.add('hidden'); return; }
+    hint.classList.remove('hidden');
     acTimer = setTimeout(async () => {
+        hint.classList.add('hidden');
         try {
             const items = a.omk.searchItems(
                 `property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassPerson}`
@@ -590,7 +654,10 @@ document.getElementById('personSearchInput').addEventListener('keydown', functio
 });
 
 document.getElementById('personSearchInput').addEventListener('blur', () => {
-    setTimeout(() => document.getElementById('personAcDropdown').classList.add('hidden'), 150);
+    setTimeout(() => {
+        document.getElementById('personAcDropdown').classList.add('hidden');
+        document.getElementById('personAcHint').classList.add('hidden');
+    }, 150);
 });
 
 
@@ -602,8 +669,15 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
     clearTimeout(kwAcTimer);
     const query    = this.value;
     const dropdown = document.getElementById('kwAcDropdown');
-    if (!query.trim()) { dropdown.classList.add('hidden'); return; }
+    const hint     = document.getElementById('kwAcHint');
+    if (!query.trim()) {
+        dropdown.classList.add('hidden');
+        hint.classList.add('hidden');
+        return;
+    }
+    hint.classList.remove('hidden');
     kwAcTimer = setTimeout(async () => {
+        hint.classList.add('hidden');
         try {
             const items = a.omk.searchItems(
                 `property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassKW}`
@@ -685,7 +759,10 @@ document.getElementById('kwSearchInput').addEventListener('keydown', function (e
 });
 
 document.getElementById('kwSearchInput').addEventListener('blur', () => {
-    setTimeout(() => document.getElementById('kwAcDropdown').classList.add('hidden'), 150);
+    setTimeout(() => {
+        document.getElementById('kwAcDropdown').classList.add('hidden');
+        document.getElementById('kwAcHint').classList.add('hidden');
+    }, 150);
 });
 
 
@@ -700,16 +777,29 @@ document.getElementById('labSelect').addEventListener('change', function () {
     browseLabId = this.value ? parseInt(this.value) : null;
     browsePage  = 1;
     document.getElementById('dlZone').classList.add('hidden');
-    if (browseLabId) loadBrowsePersons(browseLabId, browsePage);
-    else document.getElementById('browseList').innerHTML = '';
+    if (browseLabId) {
+        loadBrowsePersons(browseLabId, browsePage);
+    } else if (cfg.showAllEcs) {
+        loadBrowseAllPersons(browsePage);
+    } else {
+        document.getElementById('browseList').innerHTML = '';
+        document.getElementById('browsePagination').classList.add('hidden');
+        document.getElementById('browseStats').classList.add('hidden');
+    }
 });
 
 document.getElementById('btnBrowsePrev').addEventListener('click', () => {
-    if (browsePage > 1) { browsePage--; loadBrowsePersons(browseLabId, browsePage); }
+    if (browsePage > 1) {
+        browsePage--;
+        browseLabId ? loadBrowsePersons(browseLabId, browsePage) : loadBrowseAllPersons(browsePage);
+    }
 });
 
 document.getElementById('btnBrowseNext').addEventListener('click', () => {
-    if (!document.getElementById('btnBrowseNext').disabled) { browsePage++; loadBrowsePersons(browseLabId, browsePage); }
+    if (!document.getElementById('btnBrowseNext').disabled) {
+        browsePage++;
+        browseLabId ? loadBrowsePersons(browseLabId, browsePage) : loadBrowseAllPersons(browsePage);
+    }
 });
 
 document.getElementById('btnShowAll').addEventListener('click', () => {
@@ -833,6 +923,8 @@ function showBrowse() {
     if (browseLabId) {
         document.getElementById('labSelect').value = browseLabId;
         loadBrowsePersons(browseLabId, browsePage);
+    } else if (cfg.showAllEcs) {
+        loadBrowseAllPersons(browsePage);
     }
 }
 
@@ -850,23 +942,92 @@ function countKeywords(item) {
     return seen.size;
 }
 
+// Charge tous les ECs d'un labo (ou du périmètre) pour calculer les stats globales.
+// Appelé en parallèle du chargement paginé — résultat affiché dans #browseStats.
+function computeBrowseStats(labId) {
+    const statsEl = document.getElementById('browseStats');
+    statsEl.classList.add('hidden');
+    setTimeout(() => {
+        try {
+            const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+            let query = `resource_class_id[]=${cfg.idClassPerson}&sort_by=title&sort_order=asc`;
+            if (labId) {
+                query += `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
+                         `&property[0][type]=res&property[0][text]=${labId}`;
+            } else if (allowedLabIds !== null) {
+                const labFilters = allowedLabIds.map((id, i) =>
+                    `&property[${i}][joiner]=or&property[${i}][property]=${isPartOfPropId}` +
+                    `&property[${i}][type]=res&property[${i}][text]=${id}`
+                ).join('');
+                query += labFilters;
+            }
+            const allEcs   = a.omk.getAllItems(query) || [];
+            const total    = allEcs.length;
+            const noKw     = allEcs.filter(ec => countKeywords(ec) === 0).length;
+            const pct      = total ? Math.round((noKw / total) * 100) : 0;
+            statsEl.innerHTML = total
+                ? `${total} EC${total > 1 ? 's' : ''} — ` +
+                  `<span class="${noKw > 0 ? 'stats-warn' : 'stats-ok'}">${noKw} sans mot-clef` +
+                  `${noKw > 0 ? ` <span class="stats-pct">(${pct}%)</span>` : ''}</span>`
+                : '';
+            statsEl.classList.remove('hidden');
+        } catch (e) { /* silencieux — les stats sont cosmétiques */ }
+    }, 0);
+}
+
+function setBrowseLoading(on) {
+    document.getElementById('browseLoading').classList.toggle('hidden', !on);
+    document.getElementById('browseList').classList.toggle('hidden', on);
+    document.getElementById('labSelect').disabled = on;
+}
+
+function loadBrowseAllPersons(page) {
+    setBrowseLoading(true);
+    setTimeout(() => {
+        try {
+            let query = `resource_class_id[]=${cfg.idClassPerson}&sort_by=title&sort_order=asc`;
+            if (allowedLabIds !== null) {
+                const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+                const labFilters = allowedLabIds.map((labId, i) =>
+                    `&property[${i}][joiner]=or&property[${i}][property]=${isPartOfPropId}` +
+                    `&property[${i}][type]=res&property[${i}][text]=${labId}`
+                ).join('');
+                query += labFilters;
+            }
+            const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
+            renderBrowseList(items, hasMore, [], null);
+        } catch (e) {
+            toast('Erreur lors du chargement', 'err');
+        } finally {
+            setBrowseLoading(false);
+        }
+    }, 0);
+}
+
 function loadBrowsePersons(labId, page) {
-    const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
-    const query = `resource_class_id[]=${cfg.idClassPerson}` +
-        `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
-        `&property[0][type]=res&property[0][text]=${labId}` +
-        `&sort_by=title&sort_order=asc`;
-    const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
-
-    // Charge les items axe du labo pour avoir leurs labels
-    const lab     = labs.find(l => l['o:id'] === labId);
-    const axeVals = lab ? (lab['valo:hasAxe'] || []) : [];
-    const axes    = axeVals
-        .filter(v => v.value_resource_id)
-        .map(v => a.omk.getItem(v.value_resource_id))
-        .filter(Boolean);
-
-    renderBrowseList(items, hasMore, axes, labId);
+    setBrowseLoading(true);
+    computeBrowseStats(labId);
+    setTimeout(() => {
+        try {
+            const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+            const query = `resource_class_id[]=${cfg.idClassPerson}` +
+                `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
+                `&property[0][type]=res&property[0][text]=${labId}` +
+                `&sort_by=title&sort_order=asc`;
+            const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
+            const lab     = labs.find(l => l['o:id'] === labId);
+            const axeVals = lab ? (lab['valo:hasAxe'] || []) : [];
+            const axes    = axeVals
+                .filter(v => v.value_resource_id)
+                .map(v => a.omk.getItem(v.value_resource_id))
+                .filter(Boolean);
+            renderBrowseList(items, hasMore, axes, labId);
+        } catch (e) {
+            toast('Erreur lors du chargement', 'err');
+        } finally {
+            setBrowseLoading(false);
+        }
+    }, 0);
 }
 
 function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
@@ -889,12 +1050,22 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
         const link    = buildEcLink(id);
         const isDL    = dlIds.has(id);
         const dlBadge = isDL ? `<span class="browse-dl-badge">DL</span>` : '';
+        // Récupère l'email depuis foaf:mbox
+        const mailVal = (item['foaf:mbox'] || [])[0];
+        const ecMail  = mailVal?.['@id']?.replace('mailto:', '') || mailVal?.['@value'] || '';
+        const mailBtn = window._dlMode
+            ? `<button class="btn btn-sm btn-ghost btn-send-mail"
+                  data-ecid="${id}" data-ecname="${esc(label)}" data-ecmail="${esc(ecMail)}"
+                  title="${ecMail ? `Envoyer un email à ${label}` : 'Email non renseigné'}"
+                  ${!ecMail ? 'disabled' : ''}>✉</button>`
+            : '';
         return `<div class="browse-item${isDL ? ' is-dl' : ''}" data-id="${id}">
             <div class="browse-item-name">${esc(label)}${dlBadge}</div>
             <div class="browse-item-meta">
                 <span class="browse-id">#${id}</span>
                 <span class="browse-kw-badge${kwCount === 0 ? ' zero' : ''}">${kwCount} mot${kwCount > 1 ? 's' : ''}-clef${kwCount > 1 ? 's' : ''}</span>
                 <button class="btn btn-sm btn-ghost btn-copy-link" data-link="${link}" title="Copier le lien EC">🔗</button>
+                ${mailBtn}
             </div>
         </div>`;
     }
@@ -952,6 +1123,12 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
             navigator.clipboard.writeText(btn.dataset.link)
                 .then(() => toast('Lien copié !', 'ok'))
                 .catch(() => toast('Impossible de copier', 'err'));
+        });
+    });
+    list.querySelectorAll('.btn-send-mail').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            sendEcEmail(parseInt(btn.dataset.ecid), btn.dataset.ecname, btn.dataset.ecmail);
         });
     });
     list.querySelectorAll('.browse-item').forEach(el => {
@@ -1023,7 +1200,7 @@ function renderDlZone(lab) {
 
     zone.querySelectorAll('.dl-send-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            sendDLEmail([], btn.dataset.mail, btn.dataset.name, parseInt(btn.dataset.dlid));
+            sendDLEmail(btn.dataset.mail, btn.dataset.name, parseInt(btn.dataset.dlid));
         });
     });
 
@@ -1138,31 +1315,63 @@ function buildEcLink(ecId) {
 // Génère un mailto vers le(s) DL avec :
 // - son lien DL (pour dispatcher les liens EC)
 // - son propre lien EC (pour s'auto-évaluer)
-function sendDLEmail(items, dlMail = '', dlName = '', dlId = null) {
-    const lab     = labs.find(l => l['o:id'] === browseLabId);
-    const labName = lab ? getLabel(lab) : 'votre laboratoire';
-    const dlLink  = dlId ? buildDlLink(browseLabId, dlId) : null;
-    const ecLink  = dlId ? buildEcLink(dlId) : null;
+function sendDLEmail(dlMail = '', dlName = '', dlId = null) {
+    const lab      = labs.find(l => l['o:id'] === browseLabId);
+    const labName  = lab ? getLabel(lab) : 'votre laboratoire';
+    const dlLink   = dlId ? buildDlLink(browseLabId, dlId) : null;
+    const ecLink   = dlId ? buildEcLink(dlId) : null;
+    const senderName = a?.user?.['o:name'] || a?.user?.['o:email'] || 'Le Service de Valorisation de la Recherche';
+    const deadlineLine = cfg.deadline ? `\nDate limite de validation : ${cfg.deadline}\n` : '';
+
     // ── Corps de l'email — modifiable ici si besoin de personnaliser le message ──
-    const body    = encodeURIComponent(
+    const body = encodeURIComponent(
         `Bonjour${dlName ? ' ' + dlName : ''},\n\n` +
         `Dans le cadre de la valorisation des activités de recherche du laboratoire ${labName}, ` +
-        `nous souhaitons vous associer à la validation de vos domaines d'expertise.\n\n` +
-        `À partir de vos publications, des domaines d'expertise vous ont été automatiquement attribués. ` +
-        `Nous vous invitons à vérifier que ces domaines vous représentent bien et à les ajuster si nécessaire. ` +
-        `Cela ne prend que quelques minutes.\n\n` +
+        `nous vous contactons au sujet de la validation des domaines d'expertise de vos enseignants-chercheurs.\n\n` +
+        `Ces domaines ont été extraits automatiquement à partir de leurs publications via ScanR, ` +
+        `la plateforme nationale de la recherche française, et ont fait l'objet d'un préfiltrage ` +
+        `par le Service de Valorisation de la Recherche (SVR). ` +
+        `Il ne reste plus qu'à chaque enseignant-chercheur à vérifier que ces domaines le représentent bien ` +
+        `et à les ajuster si nécessaire — cela ne prend que quelques minutes.\n\n` +
         (dlLink
-            ? `En tant que directeur du laboratoire, voici votre lien pour accéder à la liste de vos enseignants-chercheurs ` +
-              `et leur transmettre leur lien individuel :\n${dlLink}\n\n`
+            ? `En tant que directeur·rice du laboratoire, vous trouverez ci-dessous votre lien de suivi, ` +
+              `qui vous permet d'accéder à la liste de vos enseignants-chercheurs et de leur transmettre leur lien individuel :\n${dlLink}\n\n`
             : '') +
         (ecLink
-            ? `En tant qu'enseignant-chercheur, voici également votre lien personnel ` +
-              `pour valider vos propres domaines d'expertise :\n${ecLink}\n\n`
+            ? `Votre propre lien de validation (pour évaluer vos domaines d'expertise personnels) :\n${ecLink}\n\n`
             : '') +
-        `N'hésitez pas à nous contacter en cas de question.\n\nBien cordialement.`
+        deadlineLine +
+        `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
     );
-    const subject = encodeURIComponent(`Validation des mots-clefs — ${labName}`);
+    const subject = encodeURIComponent(`Validation des domaines d'expertise — ${labName}`);
     window.location.href = `mailto:${dlMail}?subject=${subject}&body=${body}`;
+}
+
+// Génère un mailto vers un EC (depuis la vue dispatch du DL)
+function sendEcEmail(ecId, ecName, ecMail) {
+    if (!ecMail) { toast("Adresse email non renseignée pour cet EC", 'err'); return; }
+    const lab      = labs.find(l => l['o:id'] === browseLabId);
+    const labName  = lab ? getLabel(lab) : 'votre laboratoire';
+    const ecLink   = buildEcLink(ecId);
+    const senderName = a?.user?.['o:name'] || a?.user?.['o:email'] || 'Le Service de Valorisation de la Recherche';
+    const deadlineLine = cfg.deadline ? `\nDate limite de validation : ${cfg.deadline}\n` : '';
+
+    // ── Corps de l'email EC — modifiable ici si besoin ──
+    const body = encodeURIComponent(
+        `Bonjour${ecName ? ' ' + ecName : ''},\n\n` +
+        `Dans le cadre de la valorisation des activités de recherche du laboratoire ${labName}, ` +
+        `nous vous contactons au sujet de la validation de vos domaines d'expertise.\n\n` +
+        `Ces domaines ont été extraits automatiquement à partir de vos publications via ScanR, ` +
+        `la plateforme nationale de la recherche française, et ont fait l'objet d'un préfiltrage ` +
+        `par le Service de Valorisation de la Recherche (SVR). ` +
+        `Il ne vous reste qu'à vérifier que ces domaines vous représentent bien ` +
+        `et à les ajuster si nécessaire — cela ne prend que quelques minutes.\n\n` +
+        `Voici votre lien de validation :\n${ecLink}\n` +
+        deadlineLine +
+        `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
+    );
+    const subject = encodeURIComponent(`Validation de vos domaines d'expertise — ${labName}`);
+    window.location.href = `mailto:${ecMail}?subject=${subject}&body=${body}`;
 }
 
 
@@ -1255,11 +1464,14 @@ async function loadPerson(personId) {
     hideBrowse();
     if (!person || person['o:id'] !== parseInt(personId)) resetFilter();
 
+    document.getElementById('loadingMsg').textContent = 'Chargement de la fiche…';
     setLoading(true);
     keywords = [];
 
     try {
         person = a.omk.getItem(personId);
+        document.getElementById('loadingMsg').textContent =
+            `Chargement de ${getLabel(person)}…`;
 
         // En mode EC, charge le quota de suggestions existantes
         if (fromUrl) {
@@ -1362,6 +1574,7 @@ async function loadPerson(personId) {
         toast('Erreur : ' + e.message, 'err');
     } finally {
         sortKeywords('rank', -1);
+        document.getElementById('loadingMsg').textContent = 'Chargement en cours…';
         setLoading(false);
     }
 }
