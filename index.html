@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.3</div>
+            <div class="app-dropdown-version">v0.2.4</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -99,6 +99,14 @@
                 <input type="text" id="cfgRankProp" value="curation:rank" />
                 <div class="form-hint">Terme de la propriété pour stocker la valeur d'expertise</div>
             </div>
+            <div id="migrationZone" class="hidden">
+                <div class="cfg-section-title" style="margin-top:1.2rem">Outils de migration</div>
+                <div class="form-group">
+                    <button id="btnOpenMigration" class="btn" style="font-size:.8rem">Migrer les expertises v0.2.3 → v0.2.4</button>
+                    <div class="form-hint">Convertit les notes −100/+100 vers les niveaux 1–4. Irréversible.</div>
+                    <div id="migrationDone" class="form-hint hidden" style="color:var(--success)">✓ Migration déjà effectuée sur cette instance.</div>
+                </div>
+            </div>
         </div>
 
         <div id="cfgErrors" class="cfg-errors hidden"></div>
@@ -110,7 +118,31 @@
     </div>
 </div>
 
-<!-- MAIN -->
+<!-- MODALE MIGRATION -->
+<div class="overlay" id="migrationOverlay">
+    <div class="modal">
+        <h2>Migration des expertises v0.2.3 → v0.2.4</h2>
+        <p style="font-size:.85rem;color:var(--muted);margin:-.5rem 0 1rem">168 expertises à convertir — opération irréversible</p>
+        <div class="migration-warning">
+            <span>⚠</span>
+            <span>Cette opération modifie directement les données en base. Il est conseillé de faire une sauvegarde Omeka S avant de continuer.</span>
+        </div>
+        <table class="migration-table">
+            <thead><tr><th>Ancienne valeur</th><th></th><th>Nouveau niveau</th></tr></thead>
+            <tbody>
+                <tr><td>−100 à −51</td><td>→</td><td><span class="lvl-badge lvl-1">1 — Non pertinent</span></td></tr>
+                <tr><td>−50 à 0</td><td>→</td><td><span class="lvl-badge lvl-2">2 — Expertise marginale</span></td></tr>
+                <tr><td>1 à 50</td><td>→</td><td><span class="lvl-badge lvl-3">3 — Expertise reconnue</span></td></tr>
+                <tr><td>51 à 100</td><td>→</td><td><span class="lvl-badge lvl-4">4 — Expertise centrale</span></td></tr>
+            </tbody>
+        </table>
+        <div id="migrationReport" class="migration-report hidden"></div>
+        <div class="modal-actions">
+            <button id="btnCancelMigration" class="btn" style="background:var(--bg);color:var(--text)">Annuler</button>
+            <button id="btnRunMigration" class="btn btn-danger">Lancer la migration</button>
+        </div>
+    </div>
+</div>
 <div class="container">
 
     <!-- Recherche personne -->
@@ -192,14 +224,15 @@
         </div>
         <!-- Filtre mots-clefs -->
         <div class="kw-filter-bar" id="kwFilterBar">
-            <input type="text" id="kwFilterText" placeholder="Filtrer les mots-clefs…" autocomplete="off" />
+            <span class="filter-label">Filtrer :</span>
             <div class="filter-chips">
                 <button class="chip active" data-filter="all">Tous</button>
                 <button class="chip" data-filter="todo">Sans votre expertise</button>
                 <button class="chip" data-filter="done">Avec votre expertise</button>
-                <button class="chip" data-filter="pos">Positifs</button>
-                <button class="chip" data-filter="neg">Négatifs</button>
+                <button class="chip" data-filter="pos">Niveaux 3-4</button>
+                <button class="chip" data-filter="neg">Niveaux 1-2</button>
             </div>
+            <input type="text" id="kwFilterText" placeholder="Rechercher dans les mots-clefs…" autocomplete="off" />
             <span class="kw-filter-count" id="kwFilterCount"></span>
         </div>
 
@@ -301,7 +334,7 @@ let cfg             = { ...DEFAULTS },
     kwAcIndex       = -1,     // index de navigation clavier autocomplete mot-clef
     sortState       = { field: null, dir: 1 },
     filterState     = { text: '', status: 'all' },
-    autoHideLow     = true,   // masque les mots-clefs peu pertinents automatiquement
+    autoHideLow     = true,   // masque les mots-clefs de niveau 1-2 au-delà de 20 cartes
     labs            = [],     // tous les items valo:Laboratoire
     browseLabId     = null,   // labo sélectionné dans le browse
     browsePage      = 1,
@@ -334,6 +367,99 @@ document.getElementById('cfgAdvancedToggle').addEventListener('click', function 
     body.classList.toggle('hidden', open);
     arrow.textContent = open ? '▶' : '▼';
 });
+
+// ── MIGRATION ──────────────────────────────────
+const MIGRATION_KEY = 'validExpertises_migration_v024_done';
+
+function initMigrationZone() {
+    if (!a?.userAdmin) return;
+    document.getElementById('migrationZone').classList.remove('hidden');
+    if (localStorage.getItem(MIGRATION_KEY)) {
+        document.getElementById('btnOpenMigration').disabled = true;
+        document.getElementById('migrationDone').classList.remove('hidden');
+    }
+}
+
+document.getElementById('btnOpenMigration').addEventListener('click', () => {
+    document.getElementById('settingsOverlay').classList.remove('open');
+    document.getElementById('migrationOverlay').classList.add('open');
+});
+
+document.getElementById('btnCancelMigration').addEventListener('click', () => {
+    document.getElementById('migrationOverlay').classList.remove('open');
+    document.getElementById('settingsOverlay').classList.add('open');
+});
+
+document.getElementById('btnRunMigration').addEventListener('click', async () => {
+    const btn    = document.getElementById('btnRunMigration');
+    const report = document.getElementById('migrationReport');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Migration en cours…';
+    report.classList.add('hidden');
+
+    setTimeout(async () => {
+        const result = await migrateExpertises();
+        const errorDetails = result.errorDetails?.length
+            ? `<ul style="margin:.5rem 0 0;padding-left:1.2rem;font-size:.78rem">` +
+              result.errorDetails.map(d => `<li>Item #${d.id} — ${d.msg}</li>`).join('') +
+              `</ul>`
+            : '';
+        report.innerHTML = result.errors === 0
+            ? `<span style="color:var(--success)">✓ ${result.migrated} expertise${result.migrated > 1 ? 's' : ''} migrée${result.migrated > 1 ? 's' : ''} — aucune erreur.</span>`
+            : `<span style="color:var(--danger)">⚠ ${result.migrated} migrée${result.migrated > 1 ? 's' : ''}, ${result.errors} erreur${result.errors > 1 ? 's' : ''}.</span>${errorDetails}`;
+        report.classList.remove('hidden');
+        btn.innerHTML = 'Lancer la migration';
+
+        if (result.errors === 0) {
+            localStorage.setItem(MIGRATION_KEY, '1');
+            btn.disabled = true;
+            document.getElementById('btnOpenMigration').disabled = true;
+            document.getElementById('migrationDone').classList.remove('hidden');
+        } else {
+            btn.disabled = false;
+        }
+    }, 0);
+});
+
+async function migrateExpertises() {
+    const idClassExp = a.omk.getClassByTerm('valo:Expertises_all')?.['o:id'];
+    if (!idClassExp) return { migrated: 0, errors: 1 };
+
+    const rankPropId = a.omk.getPropId(cfg.rankProp);
+    const all = a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
+    if (!Array.isArray(all)) return { migrated: 0, errors: 1 };
+
+    // Filtre les expertises non-ScanR (dcterms:creator présent)
+    const toMigrate = all.filter(e => e['dcterms:creator']?.length > 0);
+
+    let migrated = 0, errors = 0, errorDetails = [];
+
+    for (const e of toMigrate) {
+        try {
+            const rankVals = e[cfg.rankProp];
+            if (!rankVals?.length) continue;
+            const oldRank = parseInt(rankVals[rankVals.length - 1]['@value']);
+            if (isNaN(oldRank) || oldRank < -100 || oldRank > 100) continue;
+            if (oldRank >= 1 && oldRank <= 4) continue;
+
+            const newRank = oldRank >= 51  ? 4
+                          : oldRank >= 1   ? 3
+                          : oldRank >= -50 ? 2
+                          :                  1;
+
+            await a.omk.updateRessource(e['o:id'], null, 'items', e, 'PUT', {
+                ...e,
+                [cfg.rankProp]: [{ '@value': String(newRank), 'type': 'literal', 'property_id': rankPropId }]
+            });
+            migrated++;
+        } catch (err) {
+            errors++;
+            errorDetails.push({ id: e['o:id'], msg: err.message || String(err) });
+            console.error(`Migration erreur item ${e['o:id']}:`, err);
+        }
+    }
+    return { migrated, errors, errorDetails };
+}
 
 
 // ──────────────────────────────────────────────
@@ -548,7 +674,7 @@ async function saveSettings() {
     // Affiche le nom et le rôle dans le header
     d3.select('#creator').text(
         (creator['o:title'] || '') +
-        (cfg.role === 'DL' ? ' — Directeur de laboratoire' : '')
+        (cfg.role === 'DL' ? ' — Directeur·rice d\'Unité' : '')
     );
 
     showSettings();
@@ -556,6 +682,7 @@ async function saveSettings() {
     if (!fromUrl && !fromDL) {
         saveBtn.disabled = false;
         saveBtn.innerHTML = 'Enregistrer';
+        initMigrationZone();
     }
     document.getElementById('loadingMsg').textContent = 'Chargement en cours…';
     toast('Configuration enregistrée', 'ok');
@@ -766,9 +893,25 @@ document.getElementById('kwSearchInput').addEventListener('blur', () => {
 });
 
 
-// ──────────────────────────────────────────────
-// LISTENERS — TRI, BROWSE, FILTRES
-// ──────────────────────────────────────────────
+// ── NAVIGATION RETOUR ────────────────────────────────────────────────────────
+// Pousse un état dans l'historique à chaque chargement de fiche EC,
+// de sorte que le bouton navigateur "retour" revienne au Browse sans recharger.
+window.addEventListener('popstate', e => {
+    if (e.state?.view === 'browse') {
+        person = null;
+        showBrowse();
+    }
+});
+
+function pushPersonState(personId) {
+    if (fromUrl || fromDL) return; // modes EC/DL : pas d'historique
+    history.pushState({ view: 'person', personId }, '', `?person=${personId}`);
+}
+
+function pushBrowseState() {
+    if (fromUrl || fromDL) return;
+    history.replaceState({ view: 'browse' }, '', window.location.pathname);
+}
 
 document.getElementById('btnSortTitle').addEventListener('click', () => sortKeywords('title'));
 document.getElementById('btnSortRank').addEventListener('click',  () => sortKeywords('rank'));
@@ -822,7 +965,8 @@ document.querySelectorAll('#kwFilterBar .chip').forEach(btn => {
     btn.addEventListener('click', function () {
         filterState.status = this.dataset.filter;
         document.querySelectorAll('#kwFilterBar .chip').forEach(b => { b.className = 'chip'; });
-        this.classList.add('active' + (filterState.status !== 'all' ? '-' + filterState.status : ''));
+        const suffix = { all: '', todo: '-todo', done: '-done', pos: '-high', neg: '-low' };
+        this.classList.add('active' + (suffix[filterState.status] ?? ''));
         applyFilter();
     });
 });
@@ -843,8 +987,8 @@ function applyFilter() {
         switch (filterState.status) {
             case 'todo': matchStatus = !kw.hasExpert; break;
             case 'done': matchStatus =  kw.hasExpert; break;
-            case 'pos':  matchStatus =  kw.rank > 0;  break;
-            case 'neg':  matchStatus =  kw.rank <= 0; break;
+            case 'pos':  matchStatus =  kw.rank >= 3; break;
+            case 'neg':  matchStatus =  kw.rank > 0 && kw.rank < 3; break;
         }
         const show = matchText && matchStatus;
         card.style.display = show ? '' : 'none';
@@ -912,6 +1056,7 @@ async function addKeyword(conceptId, conceptLabel, silent = false) {
 // ──────────────────────────────────────────────
 
 function showBrowse() {
+    pushBrowseState();
     document.getElementById('browseSection').classList.remove('hidden');
     document.getElementById('emptyState').classList.add('hidden');
     document.getElementById('noallowType').classList.add('hidden');
@@ -1049,7 +1194,7 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
         const kwCount = countKeywords(item);
         const link    = buildEcLink(id);
         const isDL    = dlIds.has(id);
-        const dlBadge = isDL ? `<span class="browse-dl-badge">DL</span>` : '';
+        const dlBadge = isDL ? `<span class="browse-dl-badge">DU</span>` : '';
         // Récupère l'email depuis foaf:mbox
         const mailVal = (item['foaf:mbox'] || [])[0];
         const ecMail  = mailVal?.['@id']?.replace('mailto:', '') || mailVal?.['@value'] || '';
@@ -1146,6 +1291,8 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
     document.getElementById('btnBrowseNext').disabled = !hasMore;
 
     // Bouton "Copier tous les liens"
+    // Créé dynamiquement à la première occurrence puis réutilisé via getElementById
+    // (évite d'attacher N listeners à chaque re-render)
     let copyAllBtn = document.getElementById('btnCopyAllLinks');
     if (!copyAllBtn) {
         copyAllBtn            = document.createElement('button');
@@ -1172,7 +1319,7 @@ function renderDlZone(lab) {
     const dlVals = lab ? (lab['valo:directeurs'] || []) : [];
 
     if (!dlVals.length) {
-        zone.innerHTML = `<p class="dl-zone-empty">Aucun directeur renseigné pour ce laboratoire.</p>`;
+        zone.innerHTML = `<p class="dl-zone-empty">Aucun directeur·rice d'unité renseigné·e pour ce laboratoire.</p>`;
         zone.classList.remove('hidden');
         return;
     }
@@ -1180,7 +1327,7 @@ function renderDlZone(lab) {
     const dlItems = dlVals.map(v => a.omk.getItem(v.value_resource_id));
 
     zone.innerHTML = `
-        <div class="dl-zone-title">Directeur(s) du laboratoire</div>
+        <div class="dl-zone-title">Directeur·rice(s) d'unité</div>
         ${dlItems.map(dl => {
             const name  = getLabel(dl);
             const mail  = (dl['foaf:mbox'] || [])[0]?.['@value'] || '';
@@ -1191,7 +1338,7 @@ function renderDlZone(lab) {
                     <button class="btn btn-sm btn-primary dl-send-btn"
                         data-mail="${esc(mail)}" data-name="${esc(name)}"
                         data-dlid="${dl['o:id']}"
-                        title="Envoyer le lien dispatch + lien EC au DL">
+                        title="Envoyer le lien dispatch + lien EC au DU">
                         ✉ Envoyer les liens
                     </button>
                 </div>
@@ -1463,6 +1610,7 @@ async function loadPerson(personId) {
 
     hideBrowse();
     if (!person || person['o:id'] !== parseInt(personId)) resetFilter();
+    pushPersonState(personId);
 
     document.getElementById('loadingMsg').textContent = 'Chargement de la fiche…';
     setLoading(true);
@@ -1509,12 +1657,18 @@ async function loadPerson(personId) {
             const propSourceId  = a.omk.getPropId('dcterms:source');
             const rtExpertiseId = a.omk.getRtId('Expertise');
 
+            // Résout les noms de labos depuis dcterms:isPartOf
+            const labNames = (person['dcterms:isPartOf'] || [])
+                .map(v => v.display_title || v['@value'] || '')
+                .filter(Boolean);
+
             document.getElementById('personBanner').innerHTML = `
                 <div class="person-banner">
                     <div>
                         ${fromUrl ? '' : '<button class="btn btn-ghost btn-sm btn-back" onclick="showBrowse(); person=null;">&#8592; Retour à la liste</button>'}
                         <h3>${esc(personLabel)}</h3>
-                        <span>ID : ${personId} &mdash; </span>
+                        ${labNames.length ? `<span class="person-labs">${labNames.map(l => esc(l)).join(' · ')}</span>` : ''}
+                        <span class="person-id">ID : ${personId}</span>
                     </div>
                     <div class="person-icon">
                         <a id="linkToOmk" target="_blank" href="${a.omk.getItemAdminLink(person)}">
@@ -1557,7 +1711,6 @@ async function loadPerson(personId) {
                 c.expertises = existingExpertises.filter(e =>
                     e['valo:expertise'][0].value_resource_id == c.value_resource_id
                 );
-                // En mode lecture seule (DL), masque sa propre ligne de note
                 if (window._dlReadOnly) {
                     c.expertises = c.expertises.filter(e =>
                         String(e['dcterms:creator']?.[0]?.value_resource_id) !== String(cfg.creatorId)
@@ -1567,6 +1720,7 @@ async function loadPerson(personId) {
                 return c;
             });
 
+            computeScanrIndicator(keywords);
             renderKeywords();
         }
 
@@ -1584,36 +1738,69 @@ async function loadPerson(personId) {
 // FORMATAGE DES DONNÉES MÉTIER
 // ──────────────────────────────────────────────
 
+// ──────────────────────────────────────────────
+// INDICATEUR SCANR RELATIF (quartiles)
+// ──────────────────────────────────────────────
+
+function computeScanrIndicator(kws) {
+    // Collecte les notes ScanR (expertise sans dcterms:creator)
+    const scanrRanks = kws
+        .map(kw => kw.expertises.find(e => e.creatorId === 'scanr'))
+        .filter(Boolean)
+        .map(e => e.rank)
+        .filter(r => !isNaN(r));
+
+    // Seuil minimum : 4 mots-clefs avec note ScanR
+    if (scanrRanks.length < 4) {
+        kws.forEach(kw => { kw.scanrLabel = null; });
+        return;
+    }
+
+    // Calcul Q1 et Q3
+    const sorted = [...scanrRanks].sort((a, b) => a - b);
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+
+    // Attribue une étiquette à chaque keyword
+    kws.forEach(kw => {
+        const scanrExp = kw.expertises.find(e => e.creatorId === 'scanr');
+        if (!scanrExp || isNaN(scanrExp.rank)) { kw.scanrLabel = null; return; }
+        const r = scanrExp.rank;
+        kw.scanrLabel = r >= q3 ? 'high'
+                      : r <= q1 ? 'low'
+                      : 'mid';
+    });
+}
+
 function formatKeyword(c) {
     c.hasExpert = false;
-    // Nettoie le placeholder (objet local sans o:id) et l'annotation éventuelle
-    // avant de les ré-ajouter proprement — évite les doublons si formatKeyword
-    // est rappelé après un CRUD (showNewExpertise)
+    c.rank = null; // null = non noté, 0 = sans avis, 1-4 = niveaux
     c.expertises = c.expertises.filter(e => e['o:id'] && e !== c['@annotation']);
     if (c['@annotation']) c.expertises.unshift(c['@annotation']);
-    c.rank = d3.sum(c.expertises, e => {
+    c.expertises.forEach(e => {
         formatExpertise(e);
-        if (e.creatorId == cfg.creatorId) c.hasExpert = true;
         e.kw = c.value_resource_id;
-        return e.rank;
+        if (String(e.creatorId) === String(cfg.creatorId)) {
+            c.hasExpert = true;
+            c.rank = e.rank; // 0 = sans avis, 1-4 = niveaux
+        }
     });
-    // Slot placeholder si le créateur n'a pas encore d'expertise
-    // (masqué en mode lecture seule — le DL ne peut pas noter)
     if (!c.hasExpert && !window._dlReadOnly) c.expertises.push({
-        rank: 0, cls: 'pos', sign: '', kw: c.value_resource_id,
+        rank: null, kw: c.value_resource_id,
         creatorId: cfg.creatorId, creatorTitle: creator['o:title'], created: '-'
     });
-    c.cls  = c.rank > 0 ? 'pos' : 'neg';
-    c.sign = c.rank > 0 ? '+' : '';
 }
 
 function formatExpertise(e) {
-    const lastRank  = e[cfg.rankProp].length - 1;
-    e.rank          = e[cfg.rankProp] ? parseInt(e[cfg.rankProp][lastRank]['@value']) : 0;
-    e.cls           = e.rank > 0 ? 'pos' : 'neg';
-    e.sign          = e.rank > 0 ? '+' : '';
+    // Rank : guard si la propriété est absente (certaines expertises peuvent en manquer)
+    if (!e[cfg.rankProp]) {
+        e.rank = 0;
+    } else {
+        const lastRank = e[cfg.rankProp].length - 1;
+        e.rank = parseInt(e[cfg.rankProp][lastRank]['@value']) || 0;
+    }
+    // creatorId doit toujours être assigné pour que hasExpert fonctionne
     e.creatorId    = e['dcterms:creator'] ? e['dcterms:creator'][0].value_resource_id : 'scanr';
-    // En mode EC/DL, on anonymise les chargées de valo sauf l'utilisateur connecté lui-même
     const rawName  = e['dcterms:creator'] ? e['dcterms:creator'][0].display_title : 'ScanR Top Concept';
     const isSelf   = String(e.creatorId) === String(cfg.creatorId);
     const isOp     = e.creatorId !== 'scanr' && !isSelf;
@@ -1641,7 +1828,7 @@ function renderKeywords() {
     // Auto-masquage : au-delà de 20 mots-clefs, masque ceux avec rank < 5
     const textActive      = filterState.text.trim().length > 0;
     const shouldAutoHide  = autoHideLow && keywords.length > 20 && !textActive;
-    const hiddenByAuto    = shouldAutoHide ? keywords.slice(20).filter(kw => kw.rank < 5) : [];
+    const hiddenByAuto    = shouldAutoHide ? keywords.slice(20).filter(kw => kw.rank <= 2) : [];
     const hiddenIds       = new Set(hiddenByAuto.map(kw => kw.value_resource_id));
     const visibleKeywords = shouldAutoHide ? keywords.filter(kw => !hiddenIds.has(kw.value_resource_id)) : keywords;
 
@@ -1661,16 +1848,49 @@ function renderKeywords() {
     d3.select('#kwGrid').selectAll('div').remove();
     let kw = d3.select('#kwGrid').selectAll('div').data(visibleKeywords).enter().append('div')
         .attr('id',    d => 'kw-card-' + d.value_resource_id)
-        .attr('class', d => 'kw-card ' + d.cls);
+        .attr('class', 'kw-card')
+        .style('border-left-color', d => levelBorderColor(d.rank, d.scanrLabel));
 
     let kwTitle = kw.append('div').attr('class', 'kw-name').text(d => d.display_title);
-    kwTitle.append('span').attr('class', d => `rank-val-total ${d.cls}`).text(d => d.sign + d.rank);
+    kwTitle.append('span').attr('class', 'level-dots').html(d => levelDots(d.rank));
+    // Lien Wikidata si dcterms:isReferencedBy contient un QID
+    kw.filter(d => {
+        const ref = (d['dcterms:isReferencedBy'] || [])[0];
+        return ref && (ref['@id'] || ref['@value'] || '').includes('wikidata');
+    }).append('a')
+        .attr('class', 'kw-wd-link')
+        .attr('target', '_blank')
+        .attr('href', d => {
+            const ref = (d['dcterms:isReferencedBy'] || [])[0];
+            return ref['@id'] || ref['@value'] || '#';
+        })
+        .attr('title', 'Voir sur Wikidata')
+        .text(d => {
+            const ref = (d['dcterms:isReferencedBy'] || [])[0];
+            const url = ref['@id'] || ref['@value'] || '';
+            const match = url.match(/[QP]\d+/);
+            return match ? `${match[0]} ↗` : 'Wikidata ↗';
+        });
     kw.append('div').attr('class', 'kw-prop-badge').text(d => d._sourceProp ? d._sourceProp.split(':').pop() : '');
+
+    // Indicateur ScanR relatif
+    kw.filter(d => d.scanrLabel !== null && d.scanrLabel !== undefined)
+        .append('div')
+        .attr('class', d => `scanr-indicator scanr-${d.scanrLabel}`)
+        .html(d => {
+            const labels = { high: 'Très présent dans les publications', mid: 'Présent dans les publications', low: 'Peu présent dans les publications' };
+            return `<span class="scanr-indicator-icon">&#9642;</span>${labels[d.scanrLabel]}`;
+        });
     kw.append('div').attr('class', 'kw-meta').html(d => {
         const realCount = d.expertises.filter(e => e['o:id']).length;
+        const isSuggestion = (d['dcterms:description'] || [])
+            .some(v => v['@value'] === 'suggestion');
+        const badge = isSuggestion
+            ? `<span class="kw-suggestion-badge">Suggestion</span>`
+            : '';
         return !d.hasExpert
-            ? `<span style="color:var(--muted)">&#9675; Nouvelle annotation</span>`
-            : `<span style="color:var(--success)">&#9679; ${realCount} Expertise${realCount > 1 ? 's' : ''} existante${realCount > 1 ? 's' : ''}</span>`;
+            ? badge
+            : `<span style="color:var(--success)">&#9679; ${realCount} Expertise${realCount > 1 ? 's' : ''} existante${realCount > 1 ? 's' : ''}</span>${badge}`;
     });
 
     renderExpertise(kw);
@@ -1682,27 +1902,78 @@ function renderKeywords() {
 }
 
 function renderExpertise(kw) {
-    let slider = kw.selectAll('.slider').data(d => d.expertises).enter().append('div').attr('class', 'slider'),
-        rRank  = slider.append('div').attr('class', 'rank-row');
-    rRank.append('span').attr('class', 'rank-label').text(d => d.creatorTitle);
-    rRank.append('span').attr('class', 'rank-date').text(d => d.created);
-    rRank.append('span')
-        .attr('id',    d => `rv-${d.kw}-${d.creatorId}`)
-        .attr('class', d => `rank-val ${d.cls}`)
-        .text(d => d.sign + d.rank);
+    // Lignes read-only — autres opérateurs (hors ScanR et hors créateur courant)
+    const opExpertises = kw.data().map ? null : null; // D3 selection — traité par kw.each ci-dessous
 
-    let sliderWrap = kw.append('div').attr('class', 'slider-wrap');
-    sliderWrap.append('div').attr('class', 'slider-bg');
-    sliderWrap.append('div').attr('class', 'slider-zero');
-    sliderWrap.append('input')
-        .attr('type', 'range').attr('min', -100).attr('max', 100).attr('step', 1)
-        .attr('value', d => d.rank)
-        .attr('disabled', window._dlReadOnly ? true : null)
-        .on('input',  window._dlReadOnly ? null : onSlider)
-        .on('change', window._dlReadOnly ? null : onSlider);
+    if (fromUrl || fromDL) {
+        // Mode EC/DL : regroupe toutes les notes opérateurs en une seule ligne (moyenne si plusieurs)
+        kw.each(function(d) {
+            const opExps = d.expertises.filter(e =>
+                e.creatorId !== 'scanr' &&
+                String(e.creatorId) !== String(cfg.creatorId) &&
+                e['o:id'] &&
+                e.rank >= 1 && e.rank <= 4
+            );
+            if (!opExps.length) return;
+            const avg  = Math.round(opExps.reduce((s, e) => s + e.rank, 0) / opExps.length);
+            const label = opExps.length > 1
+                ? `Proposition du SVR <span class="rank-date">(moyenne de ${opExps.length} évaluations)</span>`
+                : 'Proposition du SVR';
+            d3.select(this).append('div').attr('class', 'expertise-row')
+                .html(`<span class="rank-label">${label}</span>
+                       <span class="lvl-badge lvl-${avg}">${avg} — ${LEVEL_NAMES[avg]}</span>`);
+        });
+    } else {
+        // Mode opérateur : une ligne par expertise
+        kw.selectAll('.expertise-row')
+            .data(d => d.expertises.filter(e =>
+                e.creatorId !== 'scanr' &&
+                String(e.creatorId) !== String(cfg.creatorId) &&
+                e['o:id']
+            ))
+            .enter().append('div').attr('class', 'expertise-row')
+            .html(e => `<span class="rank-label">${esc(e.creatorTitle)}</span>
+                        <span class="rank-date">${e.created}</span>
+                        ${e.rank >= 1 && e.rank <= 4
+                            ? `<span class="lvl-badge lvl-${e.rank}">${e.rank} — ${LEVEL_NAMES[e.rank]}</span>`
+                            : `<span class="rank-date">—</span>`}`);
+    }
 
-    kw.append('div').attr('class', 'slider-labels')
-        .html(`<span class="neg-lbl">&minus;100</span><span>0</span><span class="pos-lbl">+100</span>`);
+    // Sélecteur 4 niveaux — opérateur courant (ou placeholder)
+    kw.append('div').attr('class', 'level-selector')
+        .html(d => {
+            const exp = d.expertises.find(e => String(e.creatorId) === String(cfg.creatorId));
+            if (!exp) return '';
+            const rank = exp.rank ?? null;
+            const levels = [
+                { lvl: 1, label: 'Non pertinent' },
+                { lvl: 2, label: 'Expertise marginale' },
+                { lvl: 3, label: 'Expertise reconnue' },
+                { lvl: 4, label: 'Expertise centrale' },
+            ];
+            const btns = levels.map(({ lvl, label }) => {
+                const isActive = rank === lvl;
+                const cls = `level-btn lvl-${lvl}${isActive ? ` active lvl-active-${lvl}` : ''}`;
+                return `<button class="${cls}"
+                             data-level="${lvl}" data-kwid="${d.value_resource_id}"
+                             ${window._dlReadOnly ? 'disabled' : ''}>
+                            <span class="lvl-num">${lvl}</span>
+                            <span class="lvl-name">${label}</span>
+                        </button>`;
+            }).join('');
+            const saActive = rank === 0;
+            return `<div class="rank-row">
+                        <span class="rank-label">${esc(exp.creatorTitle)}</span>
+                        <span class="rank-date">${exp.created}</span>
+                    </div>
+                    <span id="rv-${d.value_resource_id}-${cfg.creatorId}" class="rank-val-hidden">${rank ?? ''}</span>
+                    <div class="level-btns">${btns}</div>
+                    ${!window._dlReadOnly
+                        ? `<span class="sans-avis-link${saActive ? ' active' : ''}"
+                               data-level="0" data-kwid="${d.value_resource_id}">Sans avis</span>`
+                        : ''}`;
+        });
+
     kw.append('div').attr('class', 'save-status').attr('id', d => 'ss-' + d.value_resource_id);
 
     if (!window._dlReadOnly) {
@@ -1716,7 +1987,6 @@ function renderExpertise(kw) {
         barButton.append('button')
             .attr('id',    d => 'btnUpdate' + d.value_resource_id)
             .attr('class', 'btn btn-warn hidden')
-            .style('display', 'inline')
             .text('Modifier')
             .on('click', updateExpertise);
         barButton.append('button')
@@ -1763,17 +2033,17 @@ function showNewExpertise(d, ne, del = false) {
         return acc;
     }, []);
     formatKeyword(d);
-    kw.selectAll('.slider, .slider-wrap, .slider-labels, .save-status, .rank-button').remove();
+    kw.selectAll('.expertise-row, .level-selector, .save-status, .rank-button').remove();
     renderExpertise(kw);
 }
 
 function setRankForKeyword(d) {
-    d.rank = 0;
-    const card = d3.select('#kw-card-' + d.value_resource_id);
-    card.selectAll('.rank-val').each(rv => { d.rank += rv.rank; });
-    d.cls  = d.rank > 0 ? 'pos' : 'neg';
-    d.sign = d.rank > 0 ? '+' : '';
-    card.select('.rank-val-total').attr('class', 'rank-val-total ' + d.cls).text(d.rank);
+    const exp = d.expertises.find(e => String(e.creatorId) === String(cfg.creatorId));
+    d.rank = exp ? (exp.rank || 0) : 0;
+    const card = document.getElementById('kw-card-' + d.value_resource_id);
+    if (card) card.style.borderLeftColor = levelBorderColor(d.rank, d.scanrLabel);
+    d3.select('#kw-card-' + d.value_resource_id)
+        .select('.level-dots').html(levelDots(d.rank));
 }
 
 function getCreatorExpertise(d) {
@@ -1781,47 +2051,109 @@ function getCreatorExpertise(d) {
 }
 
 async function createExpertise(e, d) {
-    const ne = await a.omk.createItem(getExpertiseValues(d));
-    showNewExpertise(d, ne);
-    setRankForKeyword(d);
+    try {
+        const ne = await a.omk.createItem(getExpertiseValues(d));
+        showNewExpertise(d, ne);
+        setRankForKeyword(d);
+    } catch (err) {
+        toast('Erreur lors de la création — ' + (err.message || err), 'err');
+    }
 }
 
 async function updateExpertise(e, d) {
-    const ne = await a.omk.updateRessource(getCreatorExpertise(d)['o:id'], getExpertiseValues(d, true));
-    showNewExpertise(d, ne);
-    setRankForKeyword(d);
+    try {
+        const ne = await a.omk.updateRessource(getCreatorExpertise(d)['o:id'], getExpertiseValues(d, true));
+        showNewExpertise(d, ne);
+        setRankForKeyword(d);
+    } catch (err) {
+        toast('Erreur lors de la modification — ' + (err.message || err), 'err');
+    }
 }
 
 async function deleteExpertise(e, d) {
-    const exp = getCreatorExpertise(d);
-    await a.omk.deleteItem(exp);
-    showNewExpertise(d, exp, true);
-    setRankForKeyword(d);
-    d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
-}
-
-
-// ──────────────────────────────────────────────
-// SLIDER
-// ──────────────────────────────────────────────
-
-function onSlider(e, kw) {
-    const rank = parseInt(e.target.value);
-    if (kw.hasExpert) {
-        d3.select('#btnCreate' + kw.value_resource_id).attr('class', 'btn btn-success hidden');
-        d3.select('#btnUpdate' + kw.value_resource_id).attr('class', 'btn btn-warn');
-    } else {
-        d3.select('#btnCreate' + kw.value_resource_id).attr('class', 'btn btn-success');
-        d3.select('#btnUpdate' + kw.value_resource_id).attr('class', 'btn btn-warn hidden');
+    try {
+        const exp = getCreatorExpertise(d);
+        await a.omk.deleteItem(exp);
+        showNewExpertise(d, exp, true);
+        setRankForKeyword(d);
+        d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
+    } catch (err) {
+        toast('Erreur lors de la suppression — ' + (err.message || err), 'err');
     }
-    const cls = rank > 0 ? 'pos' : rank < 0 ? 'neg' : '';
-    const sign = rank > 0 ? '+' : '';
-    const rv  = document.getElementById(`rv-${kw.value_resource_id}-${cfg.creatorId}`);
-    rv.className   = `rank-val ${cls}`;
-    rv.textContent = `${sign}${rank}`;
-    document.getElementById('kw-card-' + kw.value_resource_id).className = `kw-card ${cls}`;
-    document.getElementById('ss-' + kw.value_resource_id).innerHTML = '';
 }
+
+
+// ──────────────────────────────────────────────
+// SÉLECTEUR DE NIVEAU (remplace le slider -100/+100)
+// ──────────────────────────────────────────────
+
+// niveau 0 = sans avis, 1-4 = niveaux de pertinence
+const LEVEL_NAMES  = ['', 'Non pertinent', 'Expertise marginale', 'Expertise reconnue', 'Expertise centrale'];
+const LEVEL_BORDER = ['#D3D1C7', '#E24B4A', '#EF9F27', '#97C459', '#1D9E75'];
+const LEVEL_COLORS = ['',        '#E24B4A', '#EF9F27', '#97C459', '#1D9E75'];
+
+function levelBorderColor(rank, scanrLabel) {
+    if (rank === null) {
+        // Non noté → couleur de l'indicateur ScanR
+        if (scanrLabel === 'high') return '#97C459';
+        if (scanrLabel === 'mid')  return '#EF9F27';
+        if (scanrLabel === 'low')  return '#D3D1C7';
+        return '#D3D1C7'; // pas d'indicateur ScanR
+    }
+    return LEVEL_BORDER[rank] ?? '#D3D1C7'; // 0 = sans avis = gris
+}
+
+function levelDots(rank) {
+    if (rank === null || rank === undefined) return '';
+    if (rank === 0) return `<span style="font-size:.7rem;color:#888">—</span>`;
+    if (rank < 1 || rank > 4) return '';
+    return [1,2,3,4].map(i =>
+        `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+            background:${i <= rank ? LEVEL_COLORS[rank] : 'var(--border)'};margin:0 2px"></span>`
+    ).join('');
+}
+
+function onLevelSelect(kwId, level, kw) {
+    const rv = document.getElementById(`rv-${kwId}-${cfg.creatorId}`);
+    if (rv) rv.textContent = level; // 0 = sans avis
+    kw.rank = level;
+
+    const card = document.getElementById('kw-card-' + kwId);
+    if (card) {
+        card.querySelectorAll('.level-btn').forEach(btn => {
+            btn.className = `level-btn lvl-${btn.dataset.level}`;
+            if (parseInt(btn.dataset.level) === level)
+                btn.classList.add('active', `lvl-active-${level}`);
+        });
+        const saLink = card.querySelector('.sans-avis-link');
+        if (saLink) saLink.classList.toggle('active', level === 0);
+        card.style.borderLeftColor = levelBorderColor(level, kw.scanrLabel);
+    }
+
+    // Met à jour les dots
+    d3.select('#kw-card-' + kwId).select('.level-dots').html(levelDots(level));
+
+    if (kw.hasExpert) {
+        d3.select('#btnCreate' + kwId).attr('class', 'btn btn-success hidden');
+        d3.select('#btnUpdate' + kwId).attr('class', 'btn btn-warn');
+    } else {
+        d3.select('#btnCreate' + kwId).attr('class', 'btn btn-success');
+        d3.select('#btnUpdate' + kwId).attr('class', 'btn btn-warn hidden');
+    }
+    document.getElementById('ss-' + kwId).innerHTML = '';
+}
+
+// Délégation des clics sur les boutons de niveau (évite d'attacher N listeners)
+document.getElementById('kwGrid').addEventListener('click', e => {
+    const btn = e.target.closest('.level-btn');
+    const sa  = e.target.closest('.sans-avis-link');
+    const target = btn || sa;
+    if (!target || target.disabled) return;
+    const kwId  = parseInt(target.dataset.kwid);
+    const level = parseInt(target.dataset.level);
+    const kw    = keywords.find(k => k.value_resource_id == kwId);
+    if (kw) onLevelSelect(kwId, level, kw);
+});
 
 
 // ──────────────────────────────────────────────

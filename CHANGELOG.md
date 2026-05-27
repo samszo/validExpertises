@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.2.4] — 2026-05-27
+ 
+### Nouvelles fonctionnalités
+ 
+**Système de notation 1-4 — remplacement du slider (`index.html`, `main.css`)**
+Le slider −100/+100 est remplacé par un sélecteur à 4 niveaux explicites : Non pertinent (1) / Expertise marginale (2) / Expertise reconnue (3) / Expertise centrale (4), plus un lien discret "Sans avis" (0). Chaque bouton est coloré en permanence (rouge → ambre → vert → teal). Le niveau actif est signalé par un `outline`. Les dots colorés dans le titre de chaque carte reflètent le niveau sélectionné. La bordure gauche de la carte suit la couleur du niveau noté.
+ 
+**Indicateur ScanR relatif par quartiles (`index.html`)**
+Au chargement d'un profil EC, `computeScanrIndicator()` calcule Q1/Q3 sur l'ensemble des notes ScanR du profil (seuil minimum : 4 mots-clefs). Chaque carte affiche un indicateur en lecture seule : "Très présent / Présent / Peu présent dans les publications". La bordure gauche de la carte utilise la couleur de l'indicateur ScanR tant qu'aucun niveau n'est sélectionné.
+ 
+**Migration des expertises v0.2.3 → v0.2.4 (`index.html`, `main.css`)**
+Modale de migration accessible depuis les Paramètres avancés (admins uniquement). Affiche la table de conversion, un avertissement de sauvegarde, et lance la conversion des 168 expertises existantes (−100/−51 → 1, −50/0 → 2, 1/50 → 3, 51/100 → 4) via PUT. Rapport détaillé avec liste des erreurs par item. Flag `localStorage` après succès pour éviter une double migration.
+ 
+**Redirections Wikidata sur les mots-clefs (`index.html`, `main.css`)**
+Si un concept a un `dcterms:isReferencedBy` pointant vers Wikidata, un lien `QID ↗` discret apparaît à droite du titre de la carte, s'ouvrant dans un nouvel onglet.
+ 
+**Labo de l'EC dans le bandeau (`index.html`, `main.css`)**
+Les laboratoires de l'EC (via `dcterms:isPartOf`) sont affichés sous son nom dans le bandeau de fiche, séparés par `·`.
+ 
+**Navigation retour sans rechargement (`index.html`)**
+`loadPerson` pousse un état dans l'historique navigateur (`history.pushState`). Le bouton natif "retour" du navigateur revient désormais au Browse sans recharger la page. `showBrowse` remplace l'état courant via `history.replaceState`.
+ 
+**Badge "Suggestion" sur les mots-clefs suggérés (`index.html`, `main.css`)**
+Les mots-clefs marqués `dcterms:description = "suggestion"` affichent un badge violet "Suggestion" sur leur carte, qu'ils soient notés ou non. Remplace le texte "Nouvelle annotation" supprimé.
+ 
+**Moyenne des notes SVR en mode EC (`index.html`)**
+En mode EC/DL, au lieu d'afficher N lignes "Proposition du SVR", les notes de plusieurs opérateurs sont regroupées en une seule ligne affichant le niveau moyen (`Math.round`). Si une seule note : affichée telle quelle. Si plusieurs : "Proposition du SVR (moyenne de N évaluations)".
+ 
+### Améliorations
+ 
+**"DL" → "DU" (`index.html`)**
+Toutes les occurrences visibles de "DL" (badge Browse, tooltip, titre `dlZone`, libellé de rôle) remplacées par "DU" (Directeur·rice d'Unité). Variables JS internes inchangées.
+ 
+**Bouton "Retour" plus visible (`index.html`, `main.css`)**
+Le bouton "← Retour à la liste" est désormais rendu en fond semi-transparent blanc sur le bandeau coloré, plus lisible et identifiable.
+ 
+**Filtres plus visibles (`index.html`, `main.css`)**
+Label "Filtrer :" ajouté devant les chips. L'input de recherche texte est repositionné après les chips. Classes CSS `active-pos`/`active-neg` renommées `active-high`/`active-low`.
+ 
+**Suppression du cumul des notes (`index.html`)**
+`c.rank` reflète uniquement la note de l'opérateur connecté (plus de somme). `formatKeyword` et `setRankForKeyword` mis à jour en conséquence. Filtre "Niveaux 3-4" (ex-Positifs) et "Niveaux 1-2" (ex-Négatifs) adaptés. Seuil d'auto-masquage : `rank <= 2`.
+ 
+**Constantes de niveau au niveau module (`index.html`)**
+`LEVEL_NAMES`, `LEVEL_COLORS`, `LEVEL_BORDER` définis une seule fois au niveau module. `renderExpertise` n'en redéclare plus localement.
+ 
+### Correctifs
+ 
+**`formatExpertise` — guard trop agressif (`index.html`)**
+Le guard `if (!e[cfg.rankProp]) return` empêchait l'assignation de `creatorId`, rendant `hasExpert` toujours `false` → "Nouvelle annotation" sur toutes les cartes. Le guard protège maintenant uniquement la lecture du rang ; `creatorId` est toujours assigné.
+ 
+**Gestion des erreurs CRUD (`index.html`)**
+`createExpertise`, `updateExpertise` et `deleteExpertise` sont maintenant enveloppés dans un try/catch avec toast d'erreur visible en cas d'échec API.
+
 ## [0.2.3] — 2026-05-13
  
 ### Nouvelles fonctionnalités
