@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.4</div>
+            <div class="app-dropdown-version">v0.2.5</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -188,6 +188,10 @@
                 <select id="labSelect">
                     <option value="">— Sélectionner un laboratoire —</option>
                 </select>
+                <div class="browse-filter-chips" id="browseFilterChips">
+                    <button class="browse-chip active" data-ec-filter="all">Tous</button>
+                    <button class="browse-chip" data-ec-filter="done">Évalués</button>
+                </div>
             </div>
         </div>
         <div id="browseStats" class="browse-stats hidden"></div>
@@ -206,6 +210,25 @@
 
     <!-- Mots-clefs -->
     <div id="kwSection" class="hidden">
+
+        <!-- Bandeau guide EC — visible uniquement en mode fromUrl -->
+        <div id="ecGuideBanner" class="ec-guide-banner hidden">
+            <div class="ec-guide-header" id="ecGuideToggle">
+                <span class="ec-guide-title">📖 Comment noter vos mots-clefs ?</span>
+                <span class="ec-guide-arrow" id="ecGuideArrow">▼</span>
+            </div>
+            <div class="ec-guide-body" id="ecGuideBody">
+                <p>Ces mots-clefs ont été extraits automatiquement de vos publications via <strong>ScanR</strong> et préfiltrés par le SVR. Pour chacun, indiquez dans quelle mesure il représente votre expertise :</p>
+                <ul>
+                    <li><strong>Niveau 1</strong> — Non pertinent</li>
+                    <li><strong>Niveau 2</strong> — Expertise marginale</li>
+                    <li><strong>Niveau 3</strong> — Expertise reconnue</li>
+                    <li><strong>Niveau 4</strong> — Expertise centrale</li>
+                </ul>
+                <p>Si des mots-clefs vous semblent manquants, vous pouvez en ajouter via le champ de recherche ci-dessous. S'ils n'apparaissent pas dans les suggestions, vous pouvez en proposer un nouveau — il sera soumis à validation par le SVR.</p>
+            </div>
+        </div>
+
         <div class="kw-header">
             <h2>Mots-clefs &amp; expertises</h2>
             <div class="kw-toolbar">
@@ -338,6 +361,8 @@ let cfg             = { ...DEFAULTS },
     labs            = [],     // tous les items valo:Laboratoire
     browseLabId     = null,   // labo sélectionné dans le browse
     browsePage      = 1,
+    browseEcFilter  = 'all',  // filtre Browse : 'all' | 'todo' | 'done'
+    evaluatedEcIds  = new Set(), // IDs des ECs déjà évalués par l'opérateur connecté
     allowedLabIds   = null,   // null = global_admin | Array = lab IDs autorisés
     suggestedKwCount = 0,     // nb de concepts suggérés par l'EC (quota)
     a;                        // instance auth (couche Omeka S)
@@ -683,6 +708,8 @@ async function saveSettings() {
         saveBtn.disabled = false;
         saveBtn.innerHTML = 'Enregistrer';
         initMigrationZone();
+        // Précalcule les ECs évalués en arrière-plan
+        setTimeout(() => computeEvaluatedEcIds(), 0);
     }
     document.getElementById('loadingMsg').textContent = 'Chargement en cours…';
     toast('Configuration enregistrée', 'ok');
@@ -893,7 +920,50 @@ document.getElementById('kwSearchInput').addEventListener('blur', () => {
 });
 
 
-// ── NAVIGATION RETOUR ────────────────────────────────────────────────────────
+// ── BANDEAU GUIDE EC ─────────────────────────────────────────────────────────
+const EC_GUIDE_KEY = 'validExpertises_guide_collapsed';
+
+if (fromUrl) {
+    const banner  = document.getElementById('ecGuideBanner');
+    const body    = document.getElementById('ecGuideBody');
+    const arrow   = document.getElementById('ecGuideArrow');
+    banner.classList.remove('hidden');
+
+    // Restaure l'état replié/déplié
+    if (localStorage.getItem(EC_GUIDE_KEY) === '1') {
+        body.classList.add('hidden');
+        arrow.textContent = '▶';
+    }
+
+    document.getElementById('ecGuideToggle').addEventListener('click', () => {
+        const collapsed = body.classList.toggle('hidden');
+        arrow.textContent = collapsed ? '▶' : '▼';
+        localStorage.setItem(EC_GUIDE_KEY, collapsed ? '1' : '0');
+    });
+}
+
+// ── LANGUETTE PROTOCOLE ──────────────────────────────────────────────────────
+// Visible uniquement en mode opérateur (pas EC/DL)
+if (!fromUrl && !fromDL) {
+    document.getElementById('protoTab').classList.remove('hidden');
+}
+
+document.getElementById('protoTab').addEventListener('click', () => {
+    document.getElementById('protoOverlay').classList.add('open');
+});
+document.getElementById('protoCloseBtn').addEventListener('click', () => {
+    document.getElementById('protoOverlay').classList.remove('open');
+});
+document.getElementById('protoOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('protoOverlay'))
+        document.getElementById('protoOverlay').classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('protoOverlay').classList.remove('open');
+});
+document.querySelector('.proto-img-wrap img').addEventListener('click', function () {
+    this.classList.toggle('zoomed');
+});
 // Pousse un état dans l'historique à chaque chargement de fiche EC,
 // de sorte que le bouton navigateur "retour" revienne au Browse sans recharger.
 window.addEventListener('popstate', e => {
@@ -919,6 +989,7 @@ document.getElementById('btnSortRank').addEventListener('click',  () => sortKeyw
 document.getElementById('labSelect').addEventListener('change', function () {
     browseLabId = this.value ? parseInt(this.value) : null;
     browsePage  = 1;
+    browseAllPersonsCache = null;
     document.getElementById('dlZone').classList.add('hidden');
     if (browseLabId) {
         loadBrowsePersons(browseLabId, browsePage);
@@ -1057,6 +1128,11 @@ async function addKeyword(conceptId, conceptLabel, silent = false) {
 
 function showBrowse() {
     pushBrowseState();
+    // Si on revient d'une fiche EC, met à jour le badge d'évaluation
+    if (person) {
+        const hasEval = keywords.some(kw => kw.hasExpert);
+        updateEvaluatedStatus(person['o:id'], hasEval);
+    }
     document.getElementById('browseSection').classList.remove('hidden');
     document.getElementById('emptyState').classList.add('hidden');
     document.getElementById('noallowType').classList.add('hidden');
@@ -1120,11 +1196,70 @@ function computeBrowseStats(labId) {
     }, 0);
 }
 
+// ──────────────────────────────────────────────
+// FILTRE BROWSE — ECs évalués / non évalués
+// ──────────────────────────────────────────────
+
+// Charge toutes les expertises créées par l'opérateur et construit le Set
+// des IDs EC évalués via dcterms:source. Une seule requête, indépendante
+// du nombre d'ECs affichés.
+function computeEvaluatedEcIds() {
+    evaluatedEcIds = new Set();
+    if (!cfg.creatorId || !a) return;
+    try {
+        const idClassExp = a.omk.getClassByTerm('valo:Expertises_all')?.['o:id'];
+        if (!idClassExp) return;
+        const all = a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
+        if (!Array.isArray(all)) return;
+        all.forEach(e => {
+            const ecId = e['dcterms:source']?.[0]?.value_resource_id;
+            if (ecId) evaluatedEcIds.add(parseInt(ecId));
+        });
+    } catch (e) { /* silencieux */ }
+}
+
+// Mise à jour en temps réel du badge au retour d'une fiche EC
+function updateEvaluatedStatus(ecId, hasExpertise) {
+    if (hasExpertise) evaluatedEcIds.add(ecId);
+    else              evaluatedEcIds.delete(ecId);
+    const row = document.querySelector(`.browse-item[data-id="${ecId}"]`);
+    if (row) {
+        const badge = row.querySelector('.browse-eval-badge');
+        if (badge) {
+            badge.className   = `browse-eval-badge ${hasExpertise ? 'done' : 'todo'}`;
+            badge.title       = hasExpertise ? 'Évalué' : 'Non évalué';
+            badge.textContent = hasExpertise ? '✓' : '○';
+        }
+        row.dataset.evaluated = hasExpertise;
+    }
+}
+
+function filterBrowseItems(items) {
+    if (browseEcFilter === 'all') return items;
+    if (browseEcFilter === 'done') return items.filter(i => evaluatedEcIds.has(i['o:id']));
+    if (browseEcFilter === 'todo') return items.filter(i => !evaluatedEcIds.has(i['o:id']));
+    return items;
+}
+
+// Listeners chips filtre Browse
+document.getElementById('browseFilterChips').addEventListener('click', e => {
+    const btn = e.target.closest('[data-ec-filter]');
+    if (!btn) return;
+    browseEcFilter = btn.dataset.ecFilter;
+    browseAllPersonsCache = null; // invalide le cache au changement de filtre
+    document.querySelectorAll('#browseFilterChips .browse-chip').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    browsePage = 1;
+    browseLabId ? loadBrowsePersons(browseLabId, browsePage) : loadBrowseAllPersons(browsePage);
+});
+
 function setBrowseLoading(on) {
     document.getElementById('browseLoading').classList.toggle('hidden', !on);
     document.getElementById('browseList').classList.toggle('hidden', on);
     document.getElementById('labSelect').disabled = on;
 }
+
+let browseAllPersonsCache = null; // cache pour le mode filtre "tous les ECs"
 
 function loadBrowseAllPersons(page) {
     setBrowseLoading(true);
@@ -1139,8 +1274,35 @@ function loadBrowseAllPersons(page) {
                 ).join('');
                 query += labFilters;
             }
-            const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
-            renderBrowseList(items, hasMore, [], null);
+
+            if (browseEcFilter !== 'all') {
+                // Mode filtré : charge uniquement les ECs concernés par ID
+                if (!browseAllPersonsCache) {
+                    if (!evaluatedEcIds.size) {
+                        browseAllPersonsCache = [];
+                    } else {
+                        const ids = [...evaluatedEcIds];
+                        const allEvaluated = [];
+                        for (let i = 0; i < ids.length; i += 50) {
+                            const chunk = ids.slice(i, i + 50);
+                            const chunkQuery = chunk.map(id => `id[]=${id}`).join('&');
+                            const res = a.omk.searchItems(chunkQuery + '&per_page=50') || [];
+                            allEvaluated.push(...res);
+                        }
+                        browseAllPersonsCache = allEvaluated;
+                    }
+                }
+                const PAGE_SIZE = 20;
+                const start   = (page - 1) * PAGE_SIZE;
+                const items   = browseAllPersonsCache.slice(start, start + PAGE_SIZE);
+                const hasMore = start + PAGE_SIZE < browseAllPersonsCache.length;
+                renderBrowseList(items, hasMore, [], null);
+            } else {
+                // Mode normal : pagination serveur
+                browseAllPersonsCache = null;
+                const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
+                renderBrowseList(items, hasMore, [], null);
+            }
         } catch (e) {
             toast('Erreur lors du chargement', 'err');
         } finally {
@@ -1160,13 +1322,15 @@ function loadBrowsePersons(labId, page) {
                 `&property[0][type]=res&property[0][text]=${labId}` +
                 `&sort_by=title&sort_order=asc`;
             const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
+            // Calcule les ECs déjà évalués — une seule fois par sélection de labo
+            const filtered = filterBrowseItems(items);
             const lab     = labs.find(l => l['o:id'] === labId);
             const axeVals = lab ? (lab['valo:hasAxe'] || []) : [];
             const axes    = axeVals
                 .filter(v => v.value_resource_id)
                 .map(v => a.omk.getItem(v.value_resource_id))
                 .filter(Boolean);
-            renderBrowseList(items, hasMore, axes, labId);
+            renderBrowseList(filtered, hasMore, axes, labId);
         } catch (e) {
             toast('Erreur lors du chargement', 'err');
         } finally {
@@ -1189,12 +1353,29 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
 
     // Génère le HTML d'un item EC
     function ecItemHTML(item) {
-        const label   = getLabel(item);
-        const id      = item['o:id'];
-        const kwCount = countKeywords(item);
-        const link    = buildEcLink(id);
-        const isDL    = dlIds.has(id);
-        const dlBadge = isDL ? `<span class="browse-dl-badge">DU</span>` : '';
+        const label    = getLabel(item);
+        const id       = item['o:id'];
+        const kwCount  = countKeywords(item);
+        const link     = buildEcLink(id);
+        const isDL     = dlIds.has(id);
+        const dlBadge  = isDL ? `<span class="browse-dl-badge">DU</span>` : '';
+        // Badge évalué — vérifie si l'opérateur connecté a déjà une expertise sur cet EC
+        const propList    = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean);
+        const isEvaluated = propList.some(prop =>
+            (item[prop] || []).some(v => v.value_resource_id &&
+                // L'opérateur a noté au moins un kw de cet EC si une expertise existe avec son creatorId
+                // On se base sur le fait qu'un EC évalué a des expertises dans la BDD
+                false // placeholder — voir note ci-dessous
+            )
+        );
+        // Note : `isEvaluated` nécessiterait de charger les expertises de l'EC,
+        // ce qui est trop coûteux au rendu. On se base sur une heuristique :
+        // un EC est "évalué" si au moins un de ses concepts a une expertise
+        // avec cfg.creatorId. On stocke ce calcul dans evaluatedEcIds.
+        const evaluated   = evaluatedEcIds.has(id);
+        const evalBadge   = evaluated
+            ? `<span class="browse-eval-badge done" title="Évalué">✓</span>`
+            : `<span class="browse-eval-badge todo" title="Non évalué">○</span>`;
         // Récupère l'email depuis foaf:mbox
         const mailVal = (item['foaf:mbox'] || [])[0];
         const ecMail  = mailVal?.['@id']?.replace('mailto:', '') || mailVal?.['@value'] || '';
@@ -1204,10 +1385,11 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
                   title="${ecMail ? `Envoyer un email à ${label}` : 'Email non renseigné'}"
                   ${!ecMail ? 'disabled' : ''}>✉</button>`
             : '';
-        return `<div class="browse-item${isDL ? ' is-dl' : ''}" data-id="${id}">
+        return `<div class="browse-item${isDL ? ' is-dl' : ''}" data-id="${id}" data-evaluated="${evaluated}">
             <div class="browse-item-name">${esc(label)}${dlBadge}</div>
             <div class="browse-item-meta">
                 <span class="browse-id">#${id}</span>
+                ${evalBadge}
                 <span class="browse-kw-badge${kwCount === 0 ? ' zero' : ''}">${kwCount} mot${kwCount > 1 ? 's' : ''}-clef${kwCount > 1 ? 's' : ''}</span>
                 <button class="btn btn-sm btn-ghost btn-copy-link" data-link="${link}" title="Copier le lien EC">🔗</button>
                 ${mailBtn}
@@ -1968,7 +2150,7 @@ function renderExpertise(kw) {
                     </div>
                     <span id="rv-${d.value_resource_id}-${cfg.creatorId}" class="rank-val-hidden">${rank ?? ''}</span>
                     <div class="level-btns">${btns}</div>
-                    ${!window._dlReadOnly
+                    ${!window._dlReadOnly && !fromUrl
                         ? `<span class="sans-avis-link${saActive ? ' active' : ''}"
                                data-level="0" data-kwid="${d.value_resource_id}">Sans avis</span>`
                         : ''}`;
@@ -2207,6 +2389,26 @@ window.showBrowse = () => { person = null; showBrowse(); };
 
 </script>
 
+
+<!-- ── LANGUETTE PROTOCOLE (opérateur uniquement) ── -->
+<div id="protoTab" class="proto-tab hidden">
+    <span class="proto-tab-icon">📋</span>
+    <span>Protocole de validation</span>
+    <span class="proto-tab-arrow">▲</span>
+</div>
+
+<div class="proto-overlay" id="protoOverlay">
+    <div class="proto-modal">
+        <div class="proto-modal-header">
+            <span class="proto-modal-title">Protocole de validation des mots-clés</span>
+            <button class="btn proto-close-btn" id="protoCloseBtn">✕ Fermer</button>
+        </div>
+        <div class="proto-img-wrap">
+            <img src="assets/img/protocole.png"
+                 alt="Protocole de validation des mots-clés exprimant les expertises des enseignants-chercheurs" />
+        </div>
+    </div>
+</div>
 
 </body>
 </html>

@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.2.5] — 2026-05-28
+ 
+### Nouvelles fonctionnalités
+ 
+**Protocole de validation — languette opérateur (`index.html`, `main.css`)**
+Une languette "📋 Protocole de validation" fixée sur le bord droit de l'écran (couleur primaire, texte vertical) ouvre une modale plein écran avec fond assombri affichant le diagramme `assets/img/protocole.png`. Animation d'apparition fade + slide. Clic sur l'image pour zoomer/dézoomer. Fermeture via ✕, clic sur le fond ou Échap. Visible uniquement en mode opérateur.
+ 
+**Bandeau guide EC (`index.html`, `main.css`)**
+Un bandeau explicatif apparaît au-dessus de la grille de mots-clefs en mode EC (`fromUrl`). Il décrit les 4 niveaux de notation et indique comment ajouter ou suggérer des mots-clefs manquants. Réductible via chevron ▼/▶, état persisté en `localStorage`. Le bouton "Sans avis" est masqué en mode EC.
+ 
+**Indicateur de notation par EC dans le Browse (`index.html`, `main.css`)**
+Badge ○/✓ sur chaque ligne EC indiquant si au moins une expertise existe en base pour cet EC. Calculé au démarrage via une requête unique sur `valo:Expertises_all` (toutes expertises, tous opérateurs). Mis à jour en temps réel au retour d'une fiche EC.
+ 
+**Filtre "Évalués" dans le Browse (`index.html`, `main.css`)**
+Chips "Tous / Évalués" au-dessus de la liste Browse. En mode "Évalués", charge uniquement les ECs évalués par lots de 50 IDs via `id[]=` — bien plus rapide que charger tous les ECs. Résultat mis en cache, pagination client-side.
+ 
+### Améliorations
+ 
+**`foaf:mbox` — propriété email unifiée (`index.html`)**
+`ecItemHTML` utilisait `foaf:mailbox` au lieu de `foaf:mbox`. Corrigé pour être cohérent avec la propriété effectivement utilisée en base.
+ 
+**Labo de l'EC dans le bandeau (`index.html`, `main.css`)**
+Les laboratoires de l'EC (via `dcterms:isPartOf`) sont affichés sous son nom dans le bandeau de fiche, séparés par `·`.
+ 
+**Navigation retour sans rechargement (`index.html`)**
+`loadPerson` pousse un état dans l'historique navigateur. Le bouton natif "retour" du navigateur revient au Browse sans recharger la page. Bouton "← Retour à la liste" rendu plus visible (fond semi-transparent blanc sur bandeau).
+ 
+**"DL" → "DU" (`index.html`)**
+Toutes les occurrences visibles (badge Browse, tooltip, titre `dlZone`, libellé de rôle) remplacées par "DU" (Directeur·rice d'Unité). Variables JS internes inchangées.
+ 
+**Filtres Browse plus visibles (`index.html`, `main.css`)**
+Label "Filtrer :" devant les chips. Input de recherche repositionné après les chips. Gap entre le select labo et les chips filtre. Classes CSS `active-pos`/`active-neg` renommées `active-high`/`active-low`.
+ 
+**Redirections Wikidata sur les mots-clefs (`index.html`, `main.css`)**
+Lien `QID ↗` discret après le titre de chaque carte mot-clef si `dcterms:isReferencedBy` contient une URL Wikidata.
+ 
+**Badge "Suggestion" remplace "Nouvelle annotation" (`index.html`, `main.css`)**
+Badge violet "Suggestion" sur les mots-clefs `dcterms:description = "suggestion"`. Le texte "Nouvelle annotation" est supprimé.
+ 
+### Correctifs
+ 
+**`evaluatedEcIds` — requête correcte (`index.html`)**
+La détection des ECs évalués utilisait `getPropId` qui retournait un ID incorrect. Remplacé par `getAllItems` + filtre JS sur `dcterms:source`, même pattern que `migrateExpertises`.
+ 
+**`filterBrowseItems` en mode labo (`index.html`)**
+Le filtre s'applique maintenant correctement en mode labo (pagination serveur) et en mode "tous les ECs" (pagination client).
+
 ## [0.2.4] — 2026-05-27
  
 ### Nouvelles fonctionnalités
