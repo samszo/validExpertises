@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.6] — 2026-06-01
+ 
+### Correctifs
+ 
+**Migration des expertises — `updateRessource` mal appelé (`index.html`)**
+La fonction `migrateExpertises` passait l'item original en `fd` et l'item modifié en `dataOri`, ce qui avait pour effet d'envoyer l'item non modifié via PUT. Corrigé : l'item modifié est passé directement en `fd` avec `data = null`.
+ 
+**Migration des expertises — guard temporel (`index.html`)**
+La migration ignorait les valeurs entre 1 et 4 en supposant qu'elles appartenaient à la nouvelle échelle. Or des anciennes notes peuvent avoir ces valeurs sur l'échelle -100/+100. Remplacé par un guard sur `o:created` : seules les expertises créées **avant le 31/05/2026** (déploiement v0.2.4) sont converties, sans exception sur la valeur.
+ 
+**Migration des expertises — bouton "Relancer" (`index.html`)**
+Ajout d'un lien "Relancer" discret à côté du message "Migration déjà effectuée" pour pouvoir réinitialiser le flag `localStorage` et relancer la migration si nécessaire.
+ 
+**Détection des valeurs `rank` hors plage (`index.html`)**
+`formatExpertise` émet désormais un `console.warn` si une expertise a un `curation:rank` supérieur à 100 ou inférieur à -100, pour faciliter la détection de données corrompues en développement.
+
 ## [0.2.5] — 2026-05-28
  
 ### Nouvelles fonctionnalités

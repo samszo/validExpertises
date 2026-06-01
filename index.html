@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.5</div>
+            <div class="app-dropdown-version">v0.2.6</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -104,7 +104,7 @@
                 <div class="form-group">
                     <button id="btnOpenMigration" class="btn" style="font-size:.8rem">Migrer les expertises v0.2.3 → v0.2.4</button>
                     <div class="form-hint">Convertit les notes −100/+100 vers les niveaux 1–4. Irréversible.</div>
-                    <div id="migrationDone" class="form-hint hidden" style="color:var(--success)">✓ Migration déjà effectuée sur cette instance.</div>
+                    <div id="migrationDone" class="form-hint hidden" style="color:var(--success)">✓ Migration déjà effectuée sur cette instance. <a href="#" id="migrationReset" style="color:var(--muted);font-size:.75rem">Relancer</a></div>
                 </div>
             </div>
         </div>
@@ -402,6 +402,12 @@ function initMigrationZone() {
     if (localStorage.getItem(MIGRATION_KEY)) {
         document.getElementById('btnOpenMigration').disabled = true;
         document.getElementById('migrationDone').classList.remove('hidden');
+        document.getElementById('migrationReset')?.addEventListener('click', e => {
+            e.preventDefault();
+            localStorage.removeItem(MIGRATION_KEY);
+            document.getElementById('btnOpenMigration').disabled = false;
+            document.getElementById('migrationDone').classList.add('hidden');
+        });
     }
 }
 
@@ -464,18 +470,26 @@ async function migrateExpertises() {
             const rankVals = e[cfg.rankProp];
             if (!rankVals?.length) continue;
             const oldRank = parseInt(rankVals[rankVals.length - 1]['@value']);
-            if (isNaN(oldRank) || oldRank < -100 || oldRank > 100) continue;
-            if (oldRank >= 1 && oldRank <= 4) continue;
+            if (isNaN(oldRank)) continue;
+
+            // Guard temporel : seules les expertises créées avant le 31/05/2026
+            // (déploiement v0.2.4) sont sur l'ancienne échelle -100/+100
+            const created = e['o:created']?.['@value'];
+            if (created && new Date(created) >= new Date('2026-05-31')) continue;
+
+            // Valeurs hors plage -100/+100 : données corrompues, on ignore
+            if (oldRank < -100 || oldRank > 100) continue;
 
             const newRank = oldRank >= 51  ? 4
                           : oldRank >= 1   ? 3
                           : oldRank >= -50 ? 2
                           :                  1;
 
-            await a.omk.updateRessource(e['o:id'], null, 'items', e, 'PUT', {
+            const updatedItem = {
                 ...e,
                 [cfg.rankProp]: [{ '@value': String(newRank), 'type': 'literal', 'property_id': rankPropId }]
-            });
+            };
+            await a.omk.updateRessource(e['o:id'], null, 'items', updatedItem, 'PUT');
             migrated++;
         } catch (err) {
             errors++;
@@ -1980,6 +1994,9 @@ function formatExpertise(e) {
     } else {
         const lastRank = e[cfg.rankProp].length - 1;
         e.rank = parseInt(e[cfg.rankProp][lastRank]['@value']) || 0;
+        if (e['o:id'] && (e.rank > 100 || e.rank < -100)) {
+            console.warn(`[validExpertises] Expertise #${e['o:id']} — valeur rank hors plage : ${e.rank}`);
+        }
     }
     // creatorId doit toujours être assigné pour que hasExpert fonctionne
     e.creatorId    = e['dcterms:creator'] ? e['dcterms:creator'][0].value_resource_id : 'scanr';
