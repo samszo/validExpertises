@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.7] — 2026-06-10
+ 
+### Nouvelles fonctionnalités
+ 
+**Cache des métadonnées Omeka S (`omk.js`)**
+`omk.init()` vérifie désormais le `localStorage` avant de faire les 11 requêtes d'initialisation. Si un cache valide (< 24h, même API) est trouvé, les propriétés, classes et templates sont chargés instantanément sans aucune requête réseau. Le cache est sauvegardé après chaque rechargement complet. Un `try/catch` protège contre un cache corrompu — fallback automatique sur les requêtes API.
+ 
+**Bouton "Vider le cache des métadonnées" (`index.html`)**
+Ajouté dans les Paramètres avancés (admins uniquement). Permet de forcer le rechargement des métadonnées depuis l'API si les vocabulaires ont été modifiés en base.
+ 
+### Correctifs
+ 
+**Rank par défaut à la création d'un mot-clef (`index.html`)**
+Lors de l'ajout d'un mot-clef via l'autocomplete, l'item Expertise était créé avec `curation:rank = 100` (ancienne échelle). Remplacé par `0` (Sans avis).
+
 ## [0.2.6] — 2026-06-01
  
 ### Correctifs

@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.6</div>
+            <div class="app-dropdown-version">v0.2.7</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -105,6 +105,10 @@
                     <button id="btnOpenMigration" class="btn" style="font-size:.8rem">Migrer les expertises v0.2.3 → v0.2.4</button>
                     <div class="form-hint">Convertit les notes −100/+100 vers les niveaux 1–4. Irréversible.</div>
                     <div id="migrationDone" class="form-hint hidden" style="color:var(--success)">✓ Migration déjà effectuée sur cette instance. <a href="#" id="migrationReset" style="color:var(--muted);font-size:.75rem">Relancer</a></div>
+                </div>
+                <div class="form-group">
+                    <button id="btnClearOmkCache" class="btn" style="font-size:.8rem">Vider le cache des métadonnées</button>
+                    <div class="form-hint">Force le rechargement des propriétés et classes Omeka S. À utiliser si le vocabulaire a été modifié en base.</div>
                 </div>
             </div>
         </div>
@@ -391,6 +395,11 @@ document.getElementById('cfgAdvancedToggle').addEventListener('click', function 
     const open  = !body.classList.contains('hidden');
     body.classList.toggle('hidden', open);
     arrow.textContent = open ? '▶' : '▼';
+});
+
+document.getElementById('btnClearOmkCache').addEventListener('click', () => {
+    a?.omk?.clearMetadataCache();
+    toast('Cache des métadonnées vidé — rechargez la page pour appliquer', 'ok');
 });
 
 // ── MIGRATION ──────────────────────────────────
@@ -1122,7 +1131,7 @@ async function addKeyword(conceptId, conceptLabel, silent = false) {
         const firstProp = cfg.personPropExp.split(',')[0].trim();
         await a.omk.updateRessource(person['o:id'], { [firstProp]: { rid: conceptId } });
 
-        const exp  = { 'value_resource_id': conceptId, 'display_title': conceptLabel, 'rank': '100' };
+        const exp  = { 'value_resource_id': conceptId, 'display_title': conceptLabel, 'rank': 0 };
         const data = getExpertiseValues(exp, false, true);
         await a.omk.createItem(data);
 
