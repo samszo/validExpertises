@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.8] — 2026-06-11
+ 
+### Améliorations
+ 
+**Migration des requêtes réseau vers fetch async (`omk.js`, `index.html`)**
+`searchItems`, `getAllItems`, `searchItemsPaginated` et `getItem` passent de `XMLHttpRequest` synchrone (bloquant) à `fetch` asynchrone. L'UI reste réactive pendant les requêtes — plus de freeze, notamment sur l'autocomplete personne et mot-clef. `syncRequest` conservé pour les usages restants dans `omk.js`. Fonctions concernées dans l'app : `computeEvaluatedEcIds`, `computeBrowseStats`, `loadBrowseAllPersons`, `loadBrowsePersons`, `renderDlZone`, `migrateExpertises`, `saveSettings`, `loadPerson`.
+ 
+**Rendu découplé de `renderDlZone` (`index.html`)**
+La zone DU (directeurs d'unité) est maintenant chargée séparément après le rendu statique de la liste Browse. La liste apparaît immédiatement, la zone DU arrive en arrière-plan via `Promise.all` sur les items DU.
+ 
+**Protection anti-race-condition sur les autocompletes (`index.html`)**
+Tokens `acReqId` et `kwAcReqId` incrémentés à chaque frappe. Si une réponse arrive après qu'une requête plus récente soit partie, elle est ignorée. Le dropdown affiche un spinner pendant le chargement et un message "Erreur de chargement" en cas d'erreur réseau.
+ 
+**Protection anti-appel concurrent sur `loadPerson` (`index.html`)**
+Flag `isLoadingPerson` qui bloque tout appel concurrent. Si l'utilisateur clique sur un EC pendant qu'un autre charge, un toast "Chargement en cours, patientez…" s'affiche. Curseur `wait` sur le body pendant le chargement, libéré dans le `finally`.
+ 
+**Guard anti-stale sur `computeBrowseStats` (`index.html`)**
+Vérifie que `browseLabId` n'a pas changé pendant le `getAllItems`. Si l'utilisateur a changé de labo entre-temps, les statistiques de l'ancien labo ne s'affichent pas.
+
 ## [0.2.7] — 2026-06-10
  
 ### Nouvelles fonctionnalités

@@ -250,6 +250,17 @@
         /* ---- AUTOCOMPLETE ---- */
         .autocomplete-wrap { position: relative; flex: 1; }
         .autocomplete-wrap input { width: 100%; }
+        .ac-loading {
+            padding: .5rem 1rem;
+            display: flex; align-items: center; gap: .5rem;
+            color: var(--muted); font-size: .78rem;
+        }
+        .ac-error {
+            padding: .5rem 1rem;
+            font-size: .78rem; color: var(--danger);
+        }
+        .toast.info { background: var(--accent); }
+
         .autocomplete-dropdown {
             position: absolute;
             top: calc(100% + 4px);

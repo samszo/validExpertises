@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.7</div>
+            <div class="app-dropdown-version">v0.2.8</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -466,7 +466,7 @@ async function migrateExpertises() {
     if (!idClassExp) return { migrated: 0, errors: 1 };
 
     const rankPropId = a.omk.getPropId(cfg.rankProp);
-    const all = a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
+    const all = await a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
     if (!Array.isArray(all)) return { migrated: 0, errors: 1 };
 
     // Filtre les expertises non-ScanR (dcterms:creator présent)
@@ -674,10 +674,10 @@ async function saveSettings() {
     cfg.idClassKW     = a.omk.getClassByTerm('skos:Concept')['o:id'];
     cfg.idClassLab    = a.omk.getClassByTerm('valo:Laboratoire')['o:id'];
     cfg.idClassAxe    = a.omk.getClassByTerm('valo:Axe')?.['o:id'] || 0;
-    creator           = a.omk.getItem(cfg.creatorId);
+    creator = await a.omk.getItem(cfg.creatorId);
 
     // Charge tous les labos (nécessaire pour la détection du rôle DL)
-    labs = a.omk.searchItems(
+    labs = await a.omk.searchItems(
         `resource_class_id[]=${cfg.idClassLab}&sort_by=title&sort_order=asc&per_page=1000`
     ) || [];
 
@@ -731,7 +731,7 @@ async function saveSettings() {
         saveBtn.disabled = false;
         saveBtn.innerHTML = 'Enregistrer';
         initMigrationZone();
-        // Précalcule les ECs évalués en arrière-plan
+        // Lance le calcul des ECs évalués en arrière-plan
         setTimeout(() => computeEvaluatedEcIds(), 0);
     }
     document.getElementById('loadingMsg').textContent = 'Chargement en cours…';
@@ -761,6 +761,8 @@ function getLabel(item) {
 // AUTOCOMPLETE — PERSONNE
 // ──────────────────────────────────────────────
 
+let acReqId = 0; // token anti-race-condition autocomplete personne
+
 document.getElementById('personSearchInput').addEventListener('input', function () {
     clearTimeout(acTimer);
     selectedPersonId = null;
@@ -768,13 +770,21 @@ document.getElementById('personSearchInput').addEventListener('input', function 
     const dropdown = document.getElementById('personAcDropdown');
     const hint     = document.getElementById('personAcHint');
     if (!query.trim()) { dropdown.classList.add('hidden'); hint.classList.add('hidden'); return; }
-    hint.classList.remove('hidden');
+
+    // Spinner discret dans le dropdown pendant le chargement
+    dropdown.innerHTML = `<div class="ac-loading"><span class="spinner-sm"></span></div>`;
+    dropdown.classList.remove('hidden');
+    hint.classList.add('hidden');
+
     acTimer = setTimeout(async () => {
-        hint.classList.add('hidden');
+        const reqId = ++acReqId;
         try {
-            const items = a.omk.searchItems(
+            const items = await a.omk.searchItems(
                 `property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassPerson}`
             );
+            // Ignore si une requête plus récente est déjà partie
+            if (reqId !== acReqId) return;
+
             // Filtre par labo si l'opérateur n'est pas global_admin
             const filtered = (allowedLabIds === null)
                 ? items
@@ -801,7 +811,12 @@ document.getElementById('personSearchInput').addEventListener('input', function 
                 });
             });
             dropdown.classList.remove('hidden');
-        } catch (e) { /* ignore autocomplete errors */ }
+        } catch (e) {
+            if (reqId === acReqId) {
+                dropdown.innerHTML = `<div class="ac-error">Erreur de chargement</div>`;
+                dropdown.classList.remove('hidden');
+            }
+        }
     }, 280);
 });
 
@@ -842,6 +857,8 @@ document.getElementById('personSearchInput').addEventListener('blur', () => {
 // AUTOCOMPLETE — MOT-CLEF
 // ──────────────────────────────────────────────
 
+let kwAcReqId = 0; // token anti-race-condition autocomplete mot-clef
+
 document.getElementById('kwSearchInput').addEventListener('input', function () {
     clearTimeout(kwAcTimer);
     const query    = this.value;
@@ -852,13 +869,20 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
         hint.classList.add('hidden');
         return;
     }
-    hint.classList.remove('hidden');
+
+    // Spinner discret dans le dropdown
+    dropdown.innerHTML = `<div class="ac-loading"><span class="spinner-sm"></span></div>`;
+    dropdown.classList.remove('hidden');
+    hint.classList.add('hidden');
+
     kwAcTimer = setTimeout(async () => {
-        hint.classList.add('hidden');
+        const reqId = ++kwAcReqId;
         try {
-            const items = a.omk.searchItems(
+            const items = await a.omk.searchItems(
                 `property[0][property]=1&property[0][type]=in&property[0][text]=${query.trim()}&resource_class_id[]=${cfg.idClassKW}`
             );
+            // Ignore si une requête plus récente est déjà partie
+            if (reqId !== kwAcReqId) return;
             kwAcIndex = -1;
 
             // Option "Créer" — disponible pour tous si quota non atteint
@@ -902,7 +926,12 @@ document.getElementById('kwSearchInput').addEventListener('input', function () {
                 });
             }
             dropdown.classList.remove('hidden');
-        } catch (e) { /* ignore autocomplete errors */ }
+        } catch (e) {
+            if (reqId === kwAcReqId) {
+                dropdown.innerHTML = `<div class="ac-error">Erreur de chargement</div>`;
+                dropdown.classList.remove('hidden');
+            }
+        }
     }, 280);
 });
 
@@ -1188,10 +1217,10 @@ function countKeywords(item) {
 
 // Charge tous les ECs d'un labo (ou du périmètre) pour calculer les stats globales.
 // Appelé en parallèle du chargement paginé — résultat affiché dans #browseStats.
-function computeBrowseStats(labId) {
+async function computeBrowseStats(labId) {
     const statsEl = document.getElementById('browseStats');
     statsEl.classList.add('hidden');
-    setTimeout(() => {
+    setTimeout(async () => {
         try {
             const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
             let query = `resource_class_id[]=${cfg.idClassPerson}&sort_by=title&sort_order=asc`;
@@ -1205,7 +1234,10 @@ function computeBrowseStats(labId) {
                 ).join('');
                 query += labFilters;
             }
-            const allEcs   = a.omk.getAllItems(query) || [];
+            const allEcs = await a.omk.getAllItems(query) || [];
+
+            // Ignore si l'utilisateur a changé de labo pendant le chargement
+            if (browseLabId !== labId) return;
             const total    = allEcs.length;
             const noKw     = allEcs.filter(ec => countKeywords(ec) === 0).length;
             const pct      = total ? Math.round((noKw / total) * 100) : 0;
@@ -1226,13 +1258,13 @@ function computeBrowseStats(labId) {
 // Charge toutes les expertises créées par l'opérateur et construit le Set
 // des IDs EC évalués via dcterms:source. Une seule requête, indépendante
 // du nombre d'ECs affichés.
-function computeEvaluatedEcIds() {
+async function computeEvaluatedEcIds() {
     evaluatedEcIds = new Set();
     if (!cfg.creatorId || !a) return;
     try {
         const idClassExp = a.omk.getClassByTerm('valo:Expertises_all')?.['o:id'];
         if (!idClassExp) return;
-        const all = a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
+        const all = await a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
         if (!Array.isArray(all)) return;
         all.forEach(e => {
             const ecId = e['dcterms:source']?.[0]?.value_resource_id;
@@ -1269,7 +1301,7 @@ document.getElementById('browseFilterChips').addEventListener('click', e => {
     const btn = e.target.closest('[data-ec-filter]');
     if (!btn) return;
     browseEcFilter = btn.dataset.ecFilter;
-    browseAllPersonsCache = null; // invalide le cache au changement de filtre
+    browseAllPersonsCache = null;
     document.querySelectorAll('#browseFilterChips .browse-chip').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     browsePage = 1;
@@ -1284,82 +1316,78 @@ function setBrowseLoading(on) {
 
 let browseAllPersonsCache = null; // cache pour le mode filtre "tous les ECs"
 
-function loadBrowseAllPersons(page) {
+async function loadBrowseAllPersons(page) {
     setBrowseLoading(true);
-    setTimeout(() => {
-        try {
-            let query = `resource_class_id[]=${cfg.idClassPerson}&sort_by=title&sort_order=asc`;
-            if (allowedLabIds !== null) {
-                const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
-                const labFilters = allowedLabIds.map((labId, i) =>
-                    `&property[${i}][joiner]=or&property[${i}][property]=${isPartOfPropId}` +
-                    `&property[${i}][type]=res&property[${i}][text]=${labId}`
-                ).join('');
-                query += labFilters;
-            }
-
-            if (browseEcFilter !== 'all') {
-                // Mode filtré : charge uniquement les ECs concernés par ID
-                if (!browseAllPersonsCache) {
-                    if (!evaluatedEcIds.size) {
-                        browseAllPersonsCache = [];
-                    } else {
-                        const ids = [...evaluatedEcIds];
-                        const allEvaluated = [];
-                        for (let i = 0; i < ids.length; i += 50) {
-                            const chunk = ids.slice(i, i + 50);
-                            const chunkQuery = chunk.map(id => `id[]=${id}`).join('&');
-                            const res = a.omk.searchItems(chunkQuery + '&per_page=50') || [];
-                            allEvaluated.push(...res);
-                        }
-                        browseAllPersonsCache = allEvaluated;
-                    }
-                }
-                const PAGE_SIZE = 20;
-                const start   = (page - 1) * PAGE_SIZE;
-                const items   = browseAllPersonsCache.slice(start, start + PAGE_SIZE);
-                const hasMore = start + PAGE_SIZE < browseAllPersonsCache.length;
-                renderBrowseList(items, hasMore, [], null);
-            } else {
-                // Mode normal : pagination serveur
-                browseAllPersonsCache = null;
-                const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
-                renderBrowseList(items, hasMore, [], null);
-            }
-        } catch (e) {
-            toast('Erreur lors du chargement', 'err');
-        } finally {
-            setBrowseLoading(false);
+    try {
+        let query = `resource_class_id[]=${cfg.idClassPerson}&sort_by=title&sort_order=asc`;
+        if (allowedLabIds !== null) {
+            const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+            const labFilters = allowedLabIds.map((labId, i) =>
+                `&property[${i}][joiner]=or&property[${i}][property]=${isPartOfPropId}` +
+                `&property[${i}][type]=res&property[${i}][text]=${labId}`
+            ).join('');
+            query += labFilters;
         }
-    }, 0);
+
+        if (browseEcFilter !== 'all') {
+            // Mode filtré : charge uniquement les ECs concernés par ID
+            if (!browseAllPersonsCache) {
+                if (!evaluatedEcIds.size) {
+                    browseAllPersonsCache = [];
+                } else {
+                    const ids = [...evaluatedEcIds];
+                    const allEvaluated = [];
+                    for (let i = 0; i < ids.length; i += 50) {
+                        const chunk = ids.slice(i, i + 50);
+                        const chunkQuery = chunk.map(id => `id[]=${id}`).join('&');
+                        const res = await a.omk.searchItems(chunkQuery + '&per_page=50') || [];
+                        allEvaluated.push(...res);
+                    }
+                    browseAllPersonsCache = allEvaluated;
+                }
+            }
+            const PAGE_SIZE = 20;
+            const start   = (page - 1) * PAGE_SIZE;
+            const items   = browseAllPersonsCache.slice(start, start + PAGE_SIZE);
+            const hasMore = start + PAGE_SIZE < browseAllPersonsCache.length;
+            renderBrowseList(items, hasMore, [], null);
+        } else {
+            // Mode normal : pagination serveur
+            browseAllPersonsCache = null;
+            const { items, hasMore } = await a.omk.searchItemsPaginated(query, page, 20);
+            renderBrowseList(items, hasMore, [], null);
+        }
+    } catch (e) {
+        toast('Erreur lors du chargement', 'err');
+    } finally {
+        setBrowseLoading(false);
+    }
 }
 
-function loadBrowsePersons(labId, page) {
+async function loadBrowsePersons(labId, page) {
     setBrowseLoading(true);
     computeBrowseStats(labId);
-    setTimeout(() => {
-        try {
-            const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
-            const query = `resource_class_id[]=${cfg.idClassPerson}` +
-                `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
-                `&property[0][type]=res&property[0][text]=${labId}` +
-                `&sort_by=title&sort_order=asc`;
-            const { items, hasMore } = a.omk.searchItemsPaginated(query, page, 20);
-            // Calcule les ECs déjà évalués — une seule fois par sélection de labo
-            const filtered = filterBrowseItems(items);
-            const lab     = labs.find(l => l['o:id'] === labId);
-            const axeVals = lab ? (lab['valo:hasAxe'] || []) : [];
-            const axes    = axeVals
+    try {
+        const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+        const query = `resource_class_id[]=${cfg.idClassPerson}` +
+            `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
+            `&property[0][type]=res&property[0][text]=${labId}` +
+            `&sort_by=title&sort_order=asc`;
+        const { items, hasMore } = await a.omk.searchItemsPaginated(query, page, 20);
+        const filtered = filterBrowseItems(items);
+        const lab     = labs.find(l => l['o:id'] === labId);
+        const axeVals = lab ? (lab['valo:hasAxe'] || []) : [];
+        const axes    = await Promise.all(
+            axeVals
                 .filter(v => v.value_resource_id)
                 .map(v => a.omk.getItem(v.value_resource_id))
-                .filter(Boolean);
-            renderBrowseList(filtered, hasMore, axes, labId);
-        } catch (e) {
-            toast('Erreur lors du chargement', 'err');
-        } finally {
-            setBrowseLoading(false);
-        }
-    }, 0);
+        );
+        renderBrowseList(filtered, hasMore, axes.filter(Boolean), labId);
+    } catch (e) {
+        toast('Erreur lors du chargement', 'err');
+    } finally {
+        setBrowseLoading(false);
+    }
 }
 
 function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
@@ -1514,12 +1542,14 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
             .catch(() => toast('Impossible de copier', 'err'));
     };
 
-    renderDlZone(lab);
+    // renderDlZone est appelée séparément en async après le rendu statique
+    // pour ne pas bloquer l'affichage de la liste
+    if (lab) renderDlZone(lab);
 }
 
 
 // Affiche l'encadré des directeurs du laboratoire au-dessus de la liste ECs
-function renderDlZone(lab) {
+async function renderDlZone(lab) {
     const zone   = document.getElementById('dlZone');
     const dlVals = lab ? (lab['valo:directeurs'] || []) : [];
 
@@ -1529,7 +1559,7 @@ function renderDlZone(lab) {
         return;
     }
 
-    const dlItems = dlVals.map(v => a.omk.getItem(v.value_resource_id));
+    const dlItems = await Promise.all(dlVals.map(v => a.omk.getItem(v.value_resource_id)));
 
     zone.innerHTML = `
         <div class="dl-zone-title">Directeur·rice(s) d'unité</div>
@@ -1808,10 +1838,18 @@ function updateSortButtons() {
 // CHARGEMENT D'UNE PERSONNE
 // ──────────────────────────────────────────────
 
+let isLoadingPerson = false;
+
 async function loadPerson(personId) {
     if (!personId) personId = selectedPersonId;
     if (!personId || isNaN(personId)) { toast('Sélectionnez une personne dans la liste', 'err'); return; }
     if (!cfg.keyId) { toast("Configurez d'abord l'API", 'err'); openSettings(); return; }
+    if (isLoadingPerson) {
+        toast('Chargement en cours, patientez…', 'info');
+        return;
+    }
+    isLoadingPerson = true;
+    document.body.style.cursor = 'wait';
 
     hideBrowse();
     if (!person || person['o:id'] !== parseInt(personId)) resetFilter();
@@ -1822,7 +1860,7 @@ async function loadPerson(personId) {
     keywords = [];
 
     try {
-        person = a.omk.getItem(personId);
+        person = await a.omk.getItem(personId);
         document.getElementById('loadingMsg').textContent =
             `Chargement de ${getLabel(person)}…`;
 
@@ -1830,7 +1868,7 @@ async function loadPerson(personId) {
         if (fromUrl) {
             try {
                 const creatorPropId = a.omk.getPropId('dcterms:creator');
-                const suggestions   = a.omk.searchItems(
+                const suggestions   = await a.omk.searchItems(
                     `resource_class_id[]=${cfg.idClassKW}` +
                     `&property[0][property]=${creatorPropId}&property[0][type]=res&property[0][text]=${cfg.creatorId}`
                 );
@@ -1901,7 +1939,7 @@ async function loadPerson(personId) {
             // Pré-charge les expertises existantes pour cette personne
             let existingExpertises = [];
             try {
-                const r = a.omk.searchItems(
+                const r = await a.omk.searchItems(
                     `property[0][joiner]=and&property[0][property]=${propSourceId}` +
                     `&property[0][type]=res&property[0][text]=${personId}` +
                     `&resource_template_id[]=${rtExpertiseId}`
@@ -1932,6 +1970,8 @@ async function loadPerson(personId) {
     } catch (e) {
         toast('Erreur : ' + e.message, 'err');
     } finally {
+        isLoadingPerson = false;
+        document.body.style.cursor = '';
         sortKeywords('rank', -1);
         document.getElementById('loadingMsg').textContent = 'Chargement en cours…';
         setLoading(false);
