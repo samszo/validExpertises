@@ -439,15 +439,22 @@ export class omk {
         }
 
         async function asyncRequest(q) {
-            const response = await fetch(q, {
-                method:         'GET',
-                mode:           'cors',
-                cache:          'no-cache',
-                credentials:    'same-origin',
-                referrerPolicy: 'no-referrer',
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status} — ${q}`);
-            return response.json();
+            try {
+                const response = await fetch(q, {
+                    method:         'GET',
+                    mode:           'cors',
+                    cache:          'no-cache',
+                    credentials:    'same-origin',
+                    referrerPolicy: 'no-referrer',
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status} — ${q}`);
+                return response.json();
+            } catch (e) {
+                if (e instanceof TypeError && e.message.includes('fetch')) {
+                    throw new Error('Erreur réseau ou CORS — vérifiez la connexion et l\'URL de l\'API');
+                }
+                throw e;
+            }
         }
 
         this.init();

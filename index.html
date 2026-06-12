@@ -451,7 +451,8 @@ document.getElementById('btnRunMigration').addEventListener('click', async () =>
         btn.innerHTML = 'Lancer la migration';
 
         if (result.errors === 0) {
-            localStorage.setItem(MIGRATION_KEY, '1');
+            try { localStorage.setItem(MIGRATION_KEY, '1'); }
+            catch (e) { /* non bloquant */ }
             btn.disabled = true;
             document.getElementById('btnOpenMigration').disabled = true;
             document.getElementById('migrationDone').classList.remove('hidden');
@@ -650,7 +651,10 @@ async function saveSettings() {
 
     // Sauvegarde (ignorée en session EC pour ne pas polluer le localStorage de l'opérateur)
     Object.assign(cfg, vals);
-    if (!fromUrl && !fromDL) localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    if (!fromUrl && !fromDL) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }
+        catch (e) { console.warn('Settings non sauvegardés (localStorage indisponible)'); }
+    }
 
     // Initialise la couche Omeka S
     a = new auth({ mail: cfg.propMail, apiOmk: cfg.apiBase, ident: cfg.keyId, key: cfg.keyCred });
@@ -687,9 +691,13 @@ async function saveSettings() {
         (l['valo:directeurs'] || []).some(v => v.value_resource_id === creatorIdInt)
     );
     cfg.role = isDL ? 'DL' : 'operator';
-    if (!fromUrl && !fromDL) localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-
-    // Calcule le périmètre selon le rôle
+    if (!fromUrl && !fromDL) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }
+        catch (e) {
+            console.warn('Settings non sauvegardés (localStorage indisponible)');
+            toast('⚠ Paramètres non sauvegardés — vérifiez que vous n\'êtes pas en navigation privée', 'err');
+        }
+    }
     if (a.userAdmin || fromUrl || fromDL) {
         // global_admin → tout | session EC/DL via lien → accès libre
         allowedLabIds = null;
