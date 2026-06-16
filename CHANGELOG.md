@@ -1,6 +1,17 @@
 # Changelog
 
-## [0.2.8] — 2026-06-11
+## [0.2.8] — 2026-06-11 *(+ hotfix-2026-06-12 & hotfix-2026-06-11)*
+ 
+### Correctifs 
+ 
+**Lien cleanKeywords masqué en mode EC (`index.html`)**
+En mode EC (`?idAuthor=`, `?idCreator=`, `?t=`), le lien vers cleanKeywords est masqué dans le dropdown de navigation. Les ECs n'ont pas accès à cette app et le lien n'avait aucune utilité pour eux.
+ 
+**Parsing URL robuste — encodage Zimbra (`index.html`)**
+Certains clients mail (notamment Zimbra) passent la valeur brute des attributs href au navigateur au lieu de la décoder, transformant les `&` en `&amp;` dans l'URL. Les paramètres `idCreator`, `idAuthor` et `t` n'étaient alors pas reconnus, empêchant l'accès en mode EC. L'URL est maintenant nettoyée des `&amp;` avant parsing.
+ 
+**Accès `[0]` non protégés — items Expertise mal formés (`index.html`)**
+Trois accès `[0]` sur des propriétés potentiellement absentes ou vides (`valo:expertise`, `dcterms:creator`) pouvaient provoquer l'erreur `Cannot read properties of undefined (reading '0')` lors du chargement d'une fiche EC. Remplacés par l'opérateur `?.`. Si des items Expertise sans `valo:expertise` sont détectés au chargement, un toast rouge liste leurs IDs Omeka S et invite l'opérateur à les signaler à l'administrateur.
  
 ### Améliorations
  

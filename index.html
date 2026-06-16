@@ -19,7 +19,7 @@
         <h1>Validation des Expertises</h1>
         <div class="app-dropdown" id="appDropdown">
             <div class="app-dropdown-header">Outils</div>
-            <a class="app-dropdown-item" href="../validKeyword/index.html">
+            <a class="app-dropdown-item" id="linkToValidKeyword" href="../validKeyword/index.html">
                 <span class="app-dropdown-dot"></span>🧹 cleanKeywords
             </a>
             <div class="app-dropdown-item app-dropdown-item--active">
@@ -309,11 +309,17 @@ import { appUrl } from './assets/js/appUrl.js';
 // URL PARAMS & MODE
 // ──────────────────────────────────────────────
 
-const aUrl = new appUrl({ 'url': new URL(document.location) });
+// Normalise l'URL pour corriger les &amp; générés par certains clients mail (ex: Zimbra)
+// qui passent la valeur brute des attributs href au lieu de la décoder
+const cleanHref = document.location.href.replace(/&amp;/g, '&');
+const aUrl = new appUrl({ 'url': new URL(cleanHref) });
 
 // true si la session vient d'un lien EC (idAuthor, idCreator ou token présents)
 // → pas de sauvegarde localStorage, interface restreinte
 const fromUrl = aUrl.params.has('idCreator') || aUrl.params.has('idAuthor') || aUrl.params.has('t');
+
+// En mode EC, masque le lien vers validKeyword (inaccessible sans authentification)
+if (fromUrl) document.getElementById('linkToValidKeyword').classList.add('hidden');
 
 // true si la session vient d'un lien DL (idLab présent)
 // → interface dispatch : liste ECs du labo, pas d'évaluation
@@ -1960,7 +1966,7 @@ async function loadPerson(personId) {
             // Construit la liste finale des mots-clefs
             keywords = conceptVals.map(c => {
                 c.expertises = existingExpertises.filter(e =>
-                    e['valo:expertise'][0].value_resource_id == c.value_resource_id
+                    e['valo:expertise']?.[0]?.value_resource_id == c.value_resource_id
                 );
                 if (window._dlReadOnly) {
                     c.expertises = c.expertises.filter(e =>
@@ -2056,8 +2062,8 @@ function formatExpertise(e) {
         }
     }
     // creatorId doit toujours être assigné pour que hasExpert fonctionne
-    e.creatorId    = e['dcterms:creator'] ? e['dcterms:creator'][0].value_resource_id : 'scanr';
-    const rawName  = e['dcterms:creator'] ? e['dcterms:creator'][0].display_title : 'ScanR Top Concept';
+    e.creatorId    = e['dcterms:creator']?.[0]?.value_resource_id ?? 'scanr';
+    const rawName  = e['dcterms:creator']?.[0]?.display_title ?? 'ScanR Top Concept';
     const isSelf   = String(e.creatorId) === String(cfg.creatorId);
     const isOp     = e.creatorId !== 'scanr' && !isSelf;
     e.creatorTitle = (fromUrl || fromDL) && isOp ? 'Proposition du SVR' : rawName;
@@ -2279,7 +2285,7 @@ function getExpertiseValues(d, update = false, create = false) {
 function showNewExpertise(d, ne, del = false) {
     let kw = d3.select('#kw-card-' + d.value_resource_id);
     d.expertises = d.expertises.reduce((acc, element) => {
-        if (parseInt(element.creatorId) == ne['dcterms:creator'][0].value_resource_id) {
+        if (parseInt(element.creatorId) == ne['dcterms:creator']?.[0]?.value_resource_id) {
             // Remplace ou supprime l'expertise du créateur concerné
             if (!del) acc.push(ne);
         } else {
