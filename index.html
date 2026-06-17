@@ -1721,21 +1721,20 @@ function sendDLEmail(dlMail = '', dlName = '', dlId = null) {
 
     // ── Corps de l'email — modifiable ici si besoin de personnaliser le message ──
     const body = encodeURIComponent(
-        `Bonjour${dlName ? ' ' + dlName : ''},\n\n` +
-        `Dans le cadre de la valorisation des activités de recherche du laboratoire ${labName}, ` +
-        `nous vous contactons au sujet de la validation des domaines d'expertise de vos enseignants-chercheurs.\n\n` +
-        `Ces domaines ont été extraits automatiquement à partir de leurs publications via ScanR, ` +
-        `la plateforme nationale de la recherche française, et ont fait l'objet d'un préfiltrage ` +
-        `par le Service de Valorisation de la Recherche (SVR). ` +
-        `Il ne reste plus qu'à chaque enseignant-chercheur à vérifier que ces domaines le représentent bien ` +
-        `et à les ajuster si nécessaire — cela ne prend que quelques minutes.\n\n` +
-        (dlLink
-            ? `En tant que directeur·rice du laboratoire, vous trouverez ci-dessous votre lien de suivi, ` +
-              `qui vous permet d'accéder à la liste de vos enseignants-chercheurs et de leur transmettre leur lien individuel :\n${dlLink}\n\n`
-            : '') +
-        (ecLink
-            ? `Votre propre lien de validation (pour évaluer vos domaines d'expertise personnels) :\n${ecLink}\n\n`
-            : '') +
+        `Cher.e Directeur.rice de laboratoire,\n\n` +
+        `Dans le cadre de la valorisation de la recherche et le développement des partenariats de votre laboratoire, ` +
+        `nous avons collecté un certain nombre de données représentant des domaines d'expertise des enseignants-chercheurs ` +
+        `de ${labName}. Ces domaines ont été extraits automatiquement à partir des informations sur leurs productions ` +
+        `scientifiques dans ScanR, la plateforme nationale qui collecte les données sous licence libre de la recherche ` +
+        `française, et ont fait l'objet d'un préfiltrage par le Service de Valorisation de la Recherche (SVR).\n` +
+        `Il ne reste plus qu'à vérifier, pour chaque enseignant-chercheur, que ces domaines représentent bien ses ` +
+        `expertises et à les ajuster si nécessaire — cela ne prend que quelques minutes.\n\n` +
+        `Pour une validation rapide et facile, nous avons développé une application web et en tant que ` +
+        `directeur·rice du laboratoire, vous trouverez ci-dessous votre lien de suivi, qui vous permet d'accéder ` +
+        `à la liste des enseignants-chercheurs et de leur transmettre leur lien individuel :\n` +
+        (dlLink ? `${dlLink}\n\n` : '\n') +
+        `Votre propre lien de validation (pour évaluer vos domaines d'expertise personnels) :\n` +
+        (ecLink ? `${ecLink}\n\n` : '\n') +
         deadlineLine +
         `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
     );
@@ -1964,10 +1963,17 @@ async function loadPerson(personId) {
             }
 
             // Construit la liste finale des mots-clefs
+            const malformedIds = [];
             keywords = conceptVals.map(c => {
-                c.expertises = existingExpertises.filter(e =>
-                    e['valo:expertise']?.[0]?.value_resource_id == c.value_resource_id
-                );
+                c.expertises = existingExpertises.filter(e => {
+                    const kwId = e['valo:expertise']?.[0]?.value_resource_id;
+                    if (!kwId) {
+                        console.warn(`[validExpertises] Item Expertise #${e['o:id']} sans valo:expertise — ignoré`);
+                        malformedIds.push(e['o:id']);
+                        return false;
+                    }
+                    return kwId == c.value_resource_id;
+                });
                 if (window._dlReadOnly) {
                     c.expertises = c.expertises.filter(e =>
                         String(e['dcterms:creator']?.[0]?.value_resource_id) !== String(cfg.creatorId)
@@ -1976,6 +1982,14 @@ async function loadPerson(personId) {
                 formatKeyword(c);
                 return c;
             });
+
+            if (malformedIds.length) {
+                toast(
+                    `⚠ ${malformedIds.length} item(s) Expertise mal formé(s) ignoré(s) — IDs : ${malformedIds.join(', ')}`,
+                    'err',
+                    'Ces items n\'ont pas de propriété valo:expertise. Signalez ces IDs à l\'administrateur.'
+                );
+            }
 
             computeScanrIndicator(keywords);
             renderKeywords();

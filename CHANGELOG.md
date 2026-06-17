@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.8] — 2026-06-11 *(+ hotfix-2026-06-12 & hotfix-2026-06-11)*
+## [0.2.8] — 2026-06-11 *(+ hotfix-2026-06-17 & hotfix-2026-06-11)*
  
 ### Correctifs 
  
@@ -12,6 +12,9 @@ Certains clients mail (notamment Zimbra) passent la valeur brute des attributs h
  
 **Accès `[0]` non protégés — items Expertise mal formés (`index.html`)**
 Trois accès `[0]` sur des propriétés potentiellement absentes ou vides (`valo:expertise`, `dcterms:creator`) pouvaient provoquer l'erreur `Cannot read properties of undefined (reading '0')` lors du chargement d'une fiche EC. Remplacés par l'opérateur `?.`. Si des items Expertise sans `valo:expertise` sont détectés au chargement, un toast rouge liste leurs IDs Omeka S et invite l'opérateur à les signaler à l'administrateur.
+
+**Mise à jour du template de mail à envoyer aux DU (`index.html`)**
+Mise à jour du contenu du template destiné à l'envoi de mail aux DU, plus inclusif et généraliste.
  
 ### Améliorations
  
