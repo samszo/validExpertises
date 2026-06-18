@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.8</div>
+            <div class="app-dropdown-version">v0.2.9</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -109,6 +109,16 @@
                 <div class="form-group">
                     <button id="btnClearOmkCache" class="btn" style="font-size:.8rem">Vider le cache des métadonnées</button>
                     <div class="form-hint">Force le rechargement des propriétés et classes Omeka S. À utiliser si le vocabulaire a été modifié en base.</div>
+                </div>
+                <div class="form-group">
+                    <label>Dédupliquer les notes (curation:rank)</label>
+                    <select id="dedupLabSelect" style="margin-bottom:.4rem">
+                        <option value="">— Sélectionner un laboratoire —</option>
+                        <option value="__all__">⚠ Tous les laboratoires</option>
+                    </select>
+                    <button id="btnDedupRanks" class="btn" style="font-size:.8rem" disabled>Dédupliquer</button>
+                    <div class="form-hint">Corrige les expertises ayant accumulé plusieurs valeurs de note (bug v0.2.8 et antérieur). Ne garde que la dernière valeur — n'altère pas ce qui est affiché aux opérateurs.</div>
+                    <div id="dedupReport" class="form-hint hidden"></div>
                 </div>
             </div>
         </div>
@@ -407,6 +417,112 @@ document.getElementById('btnClearOmkCache').addEventListener('click', () => {
     a?.omk?.clearMetadataCache();
     toast('Cache des métadonnées vidé — rechargez la page pour appliquer', 'ok');
 });
+
+// ── DÉDUPLICATION DES NOTES (curation:rank pollué) ──────────────────
+document.getElementById('dedupLabSelect').addEventListener('change', function () {
+    document.getElementById('btnDedupRanks').disabled = !this.value;
+    document.getElementById('dedupReport').classList.add('hidden');
+});
+
+document.getElementById('btnDedupRanks').addEventListener('click', async () => {
+    const sel   = document.getElementById('dedupLabSelect');
+    const btn   = document.getElementById('btnDedupRanks');
+    const report = document.getElementById('dedupReport');
+    const value = sel.value;
+    if (!value) return;
+
+    if (value === '__all__') {
+        const ok = window.confirm(
+            "Vous allez dédupliquer les notes sur TOUS les laboratoires.\n\n" +
+            "Cette action ne modifie pas la valeur affichée aux opérateurs (la dernière note " +
+            "enregistrée est conservée) mais elle est irréversible sur la structure de l'item.\n\n" +
+            "Continuer ?"
+        );
+        if (!ok) return;
+    }
+
+    const labId = value === '__all__' ? null : parseInt(value);
+    btn.disabled = true;
+    sel.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Déduplication en cours…';
+    report.classList.add('hidden');
+
+    try {
+        const result = await dedupRanks(labId);
+        const errorDetails = result.errorDetails?.length
+            ? `<ul style="margin:.5rem 0 0;padding-left:1.2rem;font-size:.78rem">` +
+              result.errorDetails.map(d => `<li>Item #${d.id} — ${d.msg}</li>`).join('') +
+              `</ul>`
+            : '';
+        report.innerHTML = result.errors === 0
+            ? `<span style="color:var(--success)">✓ ${result.scanned} expertise${result.scanned > 1 ? 's' : ''} polluée${result.scanned > 1 ? 's' : ''} détectée${result.scanned > 1 ? 's' : ''} — ${result.deduped} corrigée${result.deduped > 1 ? 's' : ''}.</span>`
+            : `<span style="color:var(--danger)">⚠ ${result.deduped} corrigée${result.deduped > 1 ? 's' : ''}, ${result.errors} erreur${result.errors > 1 ? 's' : ''}.</span>${errorDetails}`;
+        report.classList.remove('hidden');
+    } catch (err) {
+        report.innerHTML = `<span style="color:var(--danger)">Erreur : ${err.message || err}</span>`;
+        report.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        sel.disabled = false;
+        btn.innerHTML = 'Dédupliquer';
+    }
+});
+
+// Scanne les expertises ayant plusieurs valeurs de curation:rank et ne garde que la dernière.
+// N'altère pas la valeur affichée aux opérateurs (formatExpertise lit déjà la dernière entrée).
+// Pour limiter le risque de race condition avec un opérateur modifiant une note en parallèle,
+// chaque item est relu (getItem) juste avant l'écriture — si entre-temps il a déjà été nettoyé
+// (1 seule valeur), il est ignoré sans PUT.
+async function dedupRanks(labId) {
+    const idClassExp = a.omk.getClassByTerm('valo:Expertises_all')?.['o:id'];
+    if (!idClassExp) return { scanned: 0, deduped: 0, errors: 1, errorDetails: [{ id: '-', msg: 'Classe Expertises introuvable' }] };
+
+    const rankPropId = a.omk.getPropId(cfg.rankProp);
+
+    // Si un labo est précisé, on restreint aux expertises dont l'EC appartient à ce labo
+    let ecIdSet = null;
+    if (labId) {
+        const isPartOfPropId = a.omk.getPropId('dcterms:isPartOf');
+        const ecs = await a.omk.getAllItems(
+            `resource_class_id[]=${cfg.idClassPerson}` +
+            `&property[0][joiner]=and&property[0][property]=${isPartOfPropId}` +
+            `&property[0][type]=res&property[0][text]=${labId}`
+        );
+        ecIdSet = new Set((Array.isArray(ecs) ? ecs : []).map(ec => ec['o:id']));
+    }
+
+    const all = await a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
+    if (!Array.isArray(all)) return { scanned: 0, deduped: 0, errors: 1, errorDetails: [{ id: '-', msg: 'Chargement des expertises échoué' }] };
+
+    const scope = ecIdSet
+        ? all.filter(e => ecIdSet.has(e['dcterms:source']?.[0]?.value_resource_id))
+        : all;
+
+    // Ne traite que les items réellement pollués (plusieurs valeurs de rank)
+    const polluted = scope.filter(e => (e[cfg.rankProp] || []).length > 1);
+
+    let deduped = 0, errors = 0, errorDetails = [];
+
+    for (const e of polluted) {
+        try {
+            // Relit l'item juste avant d'écrire pour limiter le risque de race condition
+            const fresh = await a.omk.getItem(e['o:id']);
+            const freshVals = fresh[cfg.rankProp] || [];
+            if (freshVals.length <= 1) continue; // déjà propre (modifié entre-temps par un opérateur)
+
+            const last = freshVals[freshVals.length - 1];
+            fresh[cfg.rankProp] = [{ '@value': last['@value'], 'type': 'literal', 'property_id': rankPropId }];
+
+            await a.omk.updateRessource(e['o:id'], null, 'items', fresh, 'PUT');
+            deduped++;
+        } catch (err) {
+            errors++;
+            errorDetails.push({ id: e['o:id'], msg: err.message || String(err) });
+            console.error(`Dédup erreur item ${e['o:id']}:`, err);
+        }
+    }
+    return { scanned: polluted.length, deduped, errors, errorDetails };
+}
 
 // ── MIGRATION ──────────────────────────────────
 const MIGRATION_KEY = 'validExpertises_migration_v024_done';
@@ -731,6 +847,14 @@ async function saveSettings() {
     if (cfg.role === 'DL' && allowedLabIds && allowedLabIds.length === 1) {
         labSel.value = allowedLabIds[0];
         browseLabId  = allowedLabIds[0];
+    }
+
+    // Peuple le sélecteur de labo pour l'outil de dédup (admin uniquement, tous les labos)
+    const dedupSel = document.getElementById('dedupLabSelect');
+    if (dedupSel) {
+        dedupSel.innerHTML = '<option value="">— Sélectionner un laboratoire —</option>'
+            + '<option value="__all__">⚠ Tous les laboratoires</option>'
+            + labs.map(l => `<option value="${l['o:id']}">${esc(getLabel(l))}</option>`).join('');
     }
 
     // Affiche le nom et le rôle dans le header
@@ -2184,20 +2308,28 @@ function renderExpertise(kw) {
     if (fromUrl || fromDL) {
         // Mode EC/DL : regroupe toutes les notes opérateurs en une seule ligne (moyenne si plusieurs)
         kw.each(function(d) {
-            const opExps = d.expertises.filter(e =>
+            const allOpExps = d.expertises.filter(e =>
                 e.creatorId !== 'scanr' &&
                 String(e.creatorId) !== String(cfg.creatorId) &&
-                e['o:id'] &&
-                e.rank >= 1 && e.rank <= 4
+                e['o:id']
             );
-            if (!opExps.length) return;
-            const avg  = Math.round(opExps.reduce((s, e) => s + e.rank, 0) / opExps.length);
-            const label = opExps.length > 1
-                ? `Proposition du SVR <span class="rank-date">(moyenne de ${opExps.length} évaluations)</span>`
-                : 'Proposition du SVR';
-            d3.select(this).append('div').attr('class', 'expertise-row')
-                .html(`<span class="rank-label">${label}</span>
-                       <span class="lvl-badge lvl-${avg}">${avg} — ${LEVEL_NAMES[avg]}</span>`);
+            const opExps = allOpExps.filter(e => e.rank >= 1 && e.rank <= 4);
+
+            if (opExps.length) {
+                const avg  = Math.round(opExps.reduce((s, e) => s + e.rank, 0) / opExps.length);
+                const label = opExps.length > 1
+                    ? `Proposition du SVR <span class="rank-date">(moyenne de ${opExps.length} évaluations)</span>`
+                    : 'Proposition du SVR';
+                d3.select(this).append('div').attr('class', 'expertise-row')
+                    .html(`<span class="rank-label">${label}</span>
+                           <span class="lvl-badge lvl-${avg}">${avg} — ${LEVEL_NAMES[avg]}</span>`);
+            } else if (allOpExps.some(e => e.rank === 0)) {
+                // Aucune évaluation tranchée, mais au moins un "Sans avis" explicite — distinct de "non évalué"
+                d3.select(this).append('div').attr('class', 'expertise-row')
+                    .html(`<span class="rank-label">Évalué par le SVR</span>
+                           <span class="rank-date">Sans avis</span>`);
+            }
+            // Sinon (aucune expertise du tout) : rien n'est affiché, comme avant
         });
     } else {
         // Mode opérateur : une ligne par expertise
@@ -2338,7 +2470,18 @@ async function createExpertise(e, d) {
 
 async function updateExpertise(e, d) {
     try {
-        const ne = await a.omk.updateRessource(getCreatorExpertise(d)['o:id'], getExpertiseValues(d, true));
+        const expEntry = getCreatorExpertise(d);
+        const rankPropId  = a.omk.getPropId(cfg.rankProp);
+        const titlePropId = a.omk.getPropId('dcterms:title');
+        const rank  = document.getElementById(`rv-${d.value_resource_id}-${cfg.creatorId}`).innerText;
+        const titre = `Expertise - ${d.display_title} = ${rank} - pour ${person['o:title']} fait par ${creator['o:title']} le ${new Date().toLocaleDateString()}`;
+
+        // Récupère l'item brut et remplace les propriétés au lieu de les concaténer
+        const rawItem = await a.omk.getItem(expEntry['o:id']);
+        rawItem[cfg.rankProp]    = [{ '@value': String(rank), 'type': 'literal', 'property_id': rankPropId }];
+        rawItem['dcterms:title'] = [{ '@value': titre, 'type': 'literal', 'property_id': titlePropId }];
+
+        const ne = await a.omk.updateRessource(expEntry['o:id'], null, 'items', rawItem, 'PUT');
         showNewExpertise(d, ne);
         setRankForKeyword(d);
     } catch (err) {

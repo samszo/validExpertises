@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.9] — 2026-06-13
+ 
+### Correctifs critiques
+ 
+**Duplication de `curation:rank` à chaque modification de note (`index.html`)**
+`updateExpertise` appelait `updateRessource` en mode `data` (2ème argument), ce qui déclenche un comportement de **concaténation** dans `omk.js` au lieu d'un remplacement. À chaque modification d'une note existante, l'ancienne valeur restait dans le tableau `curation:rank` et la nouvelle s'ajoutait à la suite — empilant les valeurs au lieu de les remplacer. Symptôme observé : modifier une note (ex: "Expertise reconnue" → "Sans avis") pouvait afficher un résultat incohérent. Corrigé : `updateExpertise` récupère désormais l'item brut via `getItem`, remplace directement `curation:rank` et `dcterms:title` (un seul élément), et envoie l'item complet via `fd` plutôt que `data`. Ce bug touchait le flux principal de notation utilisé en continu par tous les opérateurs.
+ 
+**"Sans avis" indistinguable de "non évalué" côté EC/DU (`index.html`)**
+En mode EC/DL, le filtre `rank >= 1 && rank <= 4` excluait également les évaluations explicites à "Sans avis" (rank 0) de l'affichage — un mot-clef noté "Sans avis" par tous les opérateurs apparaissait exactement comme s'il n'avait jamais été évalué. Désormais, si aucune évaluation tranchée n'existe mais qu'au moins un opérateur a explicitement mis "Sans avis", une ligne distincte "Évalué par le SVR — Sans avis" est affichée (sans badge coloré). Le calcul de la moyenne reste inchangé — les "Sans avis" en sont toujours exclus.
+ 
+### Nouvelles fonctionnalités
+ 
+**Outil de déduplication des notes polluées (`index.html`)**
+Nouvelle action dans les Paramètres avancés (admin uniquement) : scanne les expertises et ne garde que la dernière valeur de `curation:rank` pour celles ayant accumulé plusieurs valeurs (suite au bug ci-dessus). Sélecteur de laboratoire optionnel pour cibler l'opération ; confirmation explicite requise si "Tous les laboratoires" est choisi. Aucun PUT n'est effectué sur les items déjà propres. Pour limiter le risque de race condition avec un opérateur modifiant une note en parallèle, chaque item est relu juste avant l'écriture — s'il a déjà été nettoyé entre-temps, il est ignoré sans modification.
+
 ## [0.2.8] — 2026-06-11 *(+ hotfix-2026-06-17 & hotfix-2026-06-11)*
  
 ### Correctifs 
