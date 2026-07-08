@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.9</div>
+            <div class="app-dropdown-version">v0.2.10</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -119,6 +119,12 @@
                     <button id="btnDedupRanks" class="btn" style="font-size:.8rem" disabled>Dédupliquer</button>
                     <div class="form-hint">Corrige les expertises ayant accumulé plusieurs valeurs de note (bug v0.2.8 et antérieur). Ne garde que la dernière valeur — n'altère pas ce qui est affiché aux opérateurs.</div>
                     <div id="dedupReport" class="form-hint hidden"></div>
+                </div>
+                <div class="form-group">
+                    <label>Statistiques de validation</label>
+                    <button id="btnComputeStats" class="btn" style="font-size:.8rem">Calculer les statistiques</button>
+                    <div class="form-hint">Compte les ECs ayant fait leur auto-évaluation et les ECs validés par chaque opérateur, par laboratoire et au global. Lecture seule — aucune donnée n'est modifiée.</div>
+                    <div id="statsReport" class="hidden" style="margin-top:.6rem;font-size:.8rem"></div>
                 </div>
             </div>
         </div>
@@ -522,6 +528,166 @@ async function dedupRanks(labId) {
         }
     }
     return { scanned: polluted.length, deduped, errors, errorDetails };
+}
+
+// ── STATISTIQUES DE VALIDATION (lecture seule) ──────────────────────
+document.getElementById('btnComputeStats').addEventListener('click', async () => {
+    const btn    = document.getElementById('btnComputeStats');
+    const report = document.getElementById('statsReport');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-sm"></span> Calcul en cours…';
+    report.classList.add('hidden');
+
+    try {
+        const stats = await computeValidationStats();
+        report.innerHTML = renderStatsReport(stats);
+        report.classList.remove('hidden');
+    } catch (err) {
+        report.innerHTML = `<span style="color:var(--danger)">Erreur : ${err.message || err}</span>`;
+        report.classList.remove('hidden');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Calculer les statistiques';
+    }
+});
+
+// Distingue auto-évaluation EC (dcterms:creator == dcterms:source) des validations
+// par un opérateur (dcterms:creator != dcterms:source). Compte des ECs DISTINCTS,
+// jamais des expertises individuelles — un EC noté sur 5 mots-clefs ne compte qu'une fois.
+async function computeValidationStats() {
+    const idClassExp = a.omk.getClassByTerm('valo:Expertises_all')?.['o:id'];
+    if (!idClassExp) throw new Error('Classe Expertises introuvable');
+
+    // Tous les ECs (pour les totaux et l'appartenance aux labos)
+    const allEcs = await a.omk.getAllItems(`resource_class_id[]=${cfg.idClassPerson}&per_page=1000`);
+    const ecLabsMap = new Map(); // ecId -> [labId, ...]
+    (Array.isArray(allEcs) ? allEcs : []).forEach(ec => {
+        const labIds = (ec['dcterms:isPartOf'] || [])
+            .map(v => v.value_resource_id)
+            .filter(Boolean);
+        ecLabsMap.set(ec['o:id'], labIds);
+    });
+    const ecTotalCount = ecLabsMap.size;
+
+    // Toutes les expertises
+    const allExp = await a.omk.getAllItems(`resource_class_id[]=${idClassExp}&per_page=1000`);
+
+    const ecSelfValidated      = new Set(); // ECs ayant fait leur auto-évaluation
+    const ecSelfValidatedByLab = new Map(); // labId -> Set(ecId)
+    const opValidatedEcs       = new Map(); // creatorId -> Set(ecId)
+    const opNames              = new Map(); // creatorId -> nom affiché
+    let malformedCount = 0;
+
+    for (const e of (Array.isArray(allExp) ? allExp : [])) {
+        const sourceId  = e['dcterms:source']?.[0]?.value_resource_id;
+        const creatorEntry = e['dcterms:creator']?.[0];
+        const creatorId = creatorEntry?.value_resource_id;
+        if (!sourceId || !creatorId) { malformedCount++; continue; } // ScanR ou item mal formé — pas une validation
+
+        if (String(creatorId) === String(sourceId)) {
+            // Auto-évaluation par l'EC lui-même
+            ecSelfValidated.add(sourceId);
+            (ecLabsMap.get(sourceId) || []).forEach(labId => {
+                if (!ecSelfValidatedByLab.has(labId)) ecSelfValidatedByLab.set(labId, new Set());
+                ecSelfValidatedByLab.get(labId).add(sourceId);
+            });
+        } else {
+            // Validation par un opérateur SVR
+            if (!opValidatedEcs.has(creatorId)) opValidatedEcs.set(creatorId, new Set());
+            opValidatedEcs.get(creatorId).add(sourceId);
+            if (!opNames.has(creatorId)) opNames.set(creatorId, creatorEntry.display_title || `#${creatorId}`);
+        }
+    }
+
+    // Construit le détail par labo pour chaque opérateur
+    const operators = [...opValidatedEcs.entries()].map(([creatorId, ecSet]) => {
+        const byLab = new Map(); // labId -> count
+        ecSet.forEach(ecId => {
+            (ecLabsMap.get(ecId) || []).forEach(labId => {
+                byLab.set(labId, (byLab.get(labId) || 0) + 1);
+            });
+        });
+        return { creatorId, name: opNames.get(creatorId), total: ecSet.size, byLab };
+    }).sort((a, b) => b.total - a.total);
+
+    // Totaux par labo (ECs total + auto-évalués)
+    const labStats = (labs || []).map(lab => {
+        const labId = lab['o:id'];
+        const ecsInLab = [...ecLabsMap.entries()].filter(([, labIds]) => labIds.includes(labId)).length;
+        const selfValidatedInLab = ecSelfValidatedByLab.get(labId)?.size || 0;
+        return { labId, name: getLabel(lab), ecsInLab, selfValidatedInLab };
+    }).filter(l => l.ecsInLab > 0);
+
+    return {
+        ecTotalCount,
+        ecSelfValidatedCount: ecSelfValidated.size,
+        labStats,
+        operators,
+        malformedCount,
+        labNames: new Map(labs.map(l => [l['o:id'], getLabel(l)]))
+    };
+}
+
+function renderStatsReport(s) {
+    const pct = (n, total) => total ? Math.round(n / total * 100) : 0;
+    const globalPct = pct(s.ecSelfValidatedCount, s.ecTotalCount);
+
+    let html = `
+        <div class="stats-hero">
+            <div>
+                <div class="stats-hero-label">Auto-évaluation des ECs (global)</div>
+                <div class="stats-bar-track" style="width:220px"><div class="stats-bar-fill" style="width:${globalPct}%"></div></div>
+            </div>
+            <div class="stats-hero-value">${s.ecSelfValidatedCount} / ${s.ecTotalCount}<span style="font-size:.85rem;color:var(--muted);font-weight:400"> (${globalPct}%)</span></div>
+        </div>
+
+        <details class="stats-accordion" open>
+            <summary>Par laboratoire <span class="browse-axe-count">(${s.labStats.length})</span></summary>
+            <div class="stats-accordion-body">`;
+
+    if (!s.labStats.length) {
+        html += `<div>Aucun laboratoire avec des ECs.</div>`;
+    } else {
+        s.labStats.forEach(l => {
+            const p = pct(l.selfValidatedInLab, l.ecsInLab);
+            html += `<div class="stats-row">
+                <span class="stats-row-name">${esc(l.name)}</span>
+                <span class="stats-row-bar"><div class="stats-bar-track"><div class="stats-bar-fill" style="width:${p}%"></div></div></span>
+                <span class="stats-row-value">${l.selfValidatedInLab} / ${l.ecsInLab} (${p}%)</span>
+            </div>`;
+        });
+    }
+    html += `</div></details>
+
+        <details class="stats-accordion">
+            <summary>ECs validés par opérateur <span class="browse-axe-count">(${s.operators.length})</span></summary>
+            <div class="stats-accordion-body">`;
+
+    if (!s.operators.length) {
+        html += `<div>Aucune validation par un opérateur détectée.</div>`;
+    } else {
+        s.operators.forEach(op => {
+            const detailRows = [...op.byLab.entries()]
+                .map(([labId, count]) => `<div class="stats-row" style="border-bottom:none;padding:.15rem 0">
+                    <span class="stats-row-name" style="color:var(--muted)">${esc(s.labNames.get(labId) || '#' + labId)}</span>
+                    <span class="stats-row-value">${count}</span>
+                </div>`).join('');
+            html += `<details class="stats-accordion" style="margin:0 0 .3rem;border-color:transparent;background:transparent">
+                <summary style="background:transparent;padding:.4rem .2rem">
+                    <span class="stats-row-name">${esc(op.name)}</span>
+                    <span class="stats-op-total">${op.total}</span>
+                </summary>
+                <div class="stats-accordion-body" style="padding:.2rem .2rem .4rem 1.4rem">${detailRows}</div>
+            </details>`;
+        });
+    }
+    html += `</div></details>`;
+
+    if (s.malformedCount) {
+        html += `<div class="form-hint" style="margin-top:.5rem">⚠ ${s.malformedCount} expertise(s) ignorée(s) (ScanR ou mal formées, sans créateur ou source identifiable).</div>`;
+    }
+
+    return html;
 }
 
 // ── MIGRATION ──────────────────────────────────
@@ -1294,9 +1460,17 @@ async function addKeyword(conceptId, conceptLabel, silent = false) {
         document.getElementById('kwSearchInput').value = '';
         document.getElementById('kwAcDropdown').classList.add('hidden');
 
-        // Rattache le concept à la première propriété de la liste
-        const firstProp = cfg.personPropExp.split(',')[0].trim();
-        await a.omk.updateRessource(person['o:id'], { [firstProp]: { rid: conceptId } });
+        // Récupère l'item EC brut (avec credentials), ajoute le concept et fait un PUT direct
+        // On évite le mode `data` de updateRessource qui utilise getResource (sync, sans credentials)
+        const firstProp   = cfg.personPropExp.split(',')[0].trim();
+        const firstPropId = a.omk.getPropId(firstProp);
+        const rawPerson   = await a.omk.getItem(person['o:id']);
+        const existing    = rawPerson[firstProp] || [];
+        rawPerson[firstProp] = [
+            ...existing,
+            { 'property_id': firstPropId, 'value_resource_id': parseInt(conceptId), 'type': 'resource' }
+        ];
+        await a.omk.updateRessource(person['o:id'], null, 'items', rawPerson, 'PUT');
 
         const exp  = { 'value_resource_id': conceptId, 'display_title': conceptLabel, 'rank': 0 };
         const data = getExpertiseValues(exp, false, true);
@@ -2086,18 +2260,24 @@ async function loadPerson(personId) {
                 console.warn('expertises fetch failed:', e.message);
             }
 
-            // Construit la liste finale des mots-clefs
+            // Sépare les items mal formés (sans valo:expertise) une seule fois,
+            // avant la boucle, pour ne pas les compter une fois par mot-clef affiché
             const malformedIds = [];
+            const validExpertiseItems = existingExpertises.filter(e => {
+                const kwId = e['valo:expertise']?.[0]?.value_resource_id;
+                if (!kwId) {
+                    console.warn(`[validExpertises] Item Expertise #${e['o:id']} sans valo:expertise — ignoré`);
+                    malformedIds.push(e['o:id']);
+                    return false;
+                }
+                return true;
+            });
+
+            // Construit la liste finale des mots-clefs
             keywords = conceptVals.map(c => {
-                c.expertises = existingExpertises.filter(e => {
-                    const kwId = e['valo:expertise']?.[0]?.value_resource_id;
-                    if (!kwId) {
-                        console.warn(`[validExpertises] Item Expertise #${e['o:id']} sans valo:expertise — ignoré`);
-                        malformedIds.push(e['o:id']);
-                        return false;
-                    }
-                    return kwId == c.value_resource_id;
-                });
+                c.expertises = validExpertiseItems.filter(e =>
+                    e['valo:expertise'][0].value_resource_id == c.value_resource_id
+                );
                 if (window._dlReadOnly) {
                     c.expertises = c.expertises.filter(e =>
                         String(e['dcterms:creator']?.[0]?.value_resource_id) !== String(cfg.creatorId)
