@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.10</div>
+            <div class="app-dropdown-version">v0.2.11</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -1742,11 +1742,11 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
         // Récupère l'email depuis foaf:mbox
         const mailVal = (item['foaf:mbox'] || [])[0];
         const ecMail  = mailVal?.['@id']?.replace('mailto:', '') || mailVal?.['@value'] || '';
-        const mailBtn = window._dlMode
+        const mailBtn = !fromUrl
             ? `<button class="btn btn-sm btn-ghost btn-send-mail"
                   data-ecid="${id}" data-ecname="${esc(label)}" data-ecmail="${esc(ecMail)}"
                   title="${ecMail ? `Envoyer un email à ${label}` : 'Email non renseigné'}"
-                  ${!ecMail ? 'disabled' : ''}>✉</button>`
+                  ${!ecMail ? 'disabled' : ''}>✉️</button>`
             : '';
         return `<div class="browse-item${isDL ? ' is-dl' : ''}" data-id="${id}" data-evaluated="${evaluated}">
             <div class="browse-item-name">${esc(label)}${dlBadge}</div>
@@ -1886,7 +1886,7 @@ async function renderDlZone(lab) {
                         data-mail="${esc(mail)}" data-name="${esc(name)}"
                         data-dlid="${dl['o:id']}"
                         title="Envoyer le lien dispatch + lien EC au DU">
-                        ✉ Envoyer les liens
+                        ✉️ Envoyer les liens
                     </button>
                 </div>
             </div>`;
