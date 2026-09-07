@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.11</div>
+            <div class="app-dropdown-version">v0.2.12</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -1465,16 +1465,21 @@ async function addKeyword(conceptId, conceptLabel, silent = false) {
         const firstProp   = cfg.personPropExp.split(',')[0].trim();
         const firstPropId = a.omk.getPropId(firstProp);
         const rawPerson   = await a.omk.getItem(person['o:id']);
+        if (!rawPerson?.['o:id']) throw new Error("impossible de relire la fiche avant ajout");
         const existing    = rawPerson[firstProp] || [];
         rawPerson[firstProp] = [
             ...existing,
             { 'property_id': firstPropId, 'value_resource_id': parseInt(conceptId), 'type': 'resource' }
         ];
-        await a.omk.updateRessource(person['o:id'], null, 'items', rawPerson, 'PUT');
+        const updated = await a.omk.updateRessource(person['o:id'], null, 'items', rawPerson, 'PUT');
+        if (!updated?.['o:id']) throw new Error(apiErrorMessage(updated));
 
+        // L'expertise n'est créée qu'une fois le rattachement confirmé : sinon
+        // elle resterait orpheline (liée à un mot-clef absent de la fiche).
         const exp  = { 'value_resource_id': conceptId, 'display_title': conceptLabel, 'rank': 0 };
         const data = getExpertiseValues(exp, false, true);
-        await a.omk.createItem(data);
+        const newExp = await a.omk.createItem(data);
+        if (!newExp?.['o:id']) throw new Error(apiErrorMessage(newExp));
 
         await loadPerson(person['o:id']);
         sortKeywords('rank', -1);
@@ -2097,7 +2102,8 @@ async function suggestNewKeyword(label) {
         await addKeyword(newConcept['o:id'], label, true);
         toast(`« ${label} » suggéré et ajouté`, 'ok');
     } catch (e) {
-        toast('Erreur lors de la création : ' + e.message, 'err');
+        toast('Erreur lors de la création du mot-clef', 'err',
+              (e.message || String(e)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
         setLoading(false);
     }
 }
@@ -2181,7 +2187,8 @@ async function loadPerson(personId) {
                 const creatorPropId = a.omk.getPropId('dcterms:creator');
                 const suggestions   = await a.omk.searchItems(
                     `resource_class_id[]=${cfg.idClassKW}` +
-                    `&property[0][property]=${creatorPropId}&property[0][type]=res&property[0][text]=${cfg.creatorId}`
+                    `&property[0][property]=${creatorPropId}&property[0][type]=res&property[0][text]=${cfg.creatorId}` +
+                    `&per_page=1000`
                 );
                 suggestedKwCount = Array.isArray(suggestions) ? suggestions.length : 0;
             } catch (e) { suggestedKwCount = 0; }
@@ -2247,17 +2254,28 @@ async function loadPerson(personId) {
 
             if (!conceptVals.length) { showEmpty(); setLoading(false); return; }
 
-            // Pré-charge les expertises existantes pour cette personne
+            // Pré-charge les expertises existantes pour cette personne.
+            // getAllItems (et non searchItems) : sans per_page explicite, l'API
+            // Omeka S plafonne à 25 résultats. Au-delà, les expertises de l'EC
+            // devenaient invisibles — l'app proposait « Ajouter » au lieu de
+            // « Modifier » et chaque clic créait un doublon.
             let existingExpertises = [];
             try {
-                const r = await a.omk.searchItems(
+                const r = await a.omk.getAllItems(
                     `property[0][joiner]=and&property[0][property]=${propSourceId}` +
                     `&property[0][type]=res&property[0][text]=${personId}` +
                     `&resource_template_id[]=${rtExpertiseId}`
                 );
                 existingExpertises = Array.isArray(r) ? r : [];
             } catch (e) {
+                // Échec bloquant : sans les expertises, tous les mots-clefs
+                // paraîtraient non notés et l'opérateur en recréerait en double.
+                // Mieux vaut interrompre le chargement que d'afficher une fiche trompeuse.
                 console.warn('expertises fetch failed:', e.message);
+                throw new Error(
+                    'impossible de charger les expertises de cette personne — ' +
+                    (e.message || e)
+                );
             }
 
             // Sépare les items mal formés (sans valo:expertise) une seule fois,
@@ -2610,17 +2628,47 @@ function getExpertiseValues(d, update = false, create = false) {
 
 function showNewExpertise(d, ne, del = false) {
     let kw = d3.select('#kw-card-' + d.value_resource_id);
+    const neCreator = ne?.['dcterms:creator']?.[0]?.value_resource_id;
+    let replaced = false;
+
     d.expertises = d.expertises.reduce((acc, element) => {
-        if (parseInt(element.creatorId) == ne['dcterms:creator']?.[0]?.value_resource_id) {
-            // Remplace ou supprime l'expertise du créateur concerné
-            if (!del) acc.push(ne);
+        // Compare en chaîne : cfg.creatorId est une chaîne en mode EC (issu de l'URL),
+        // un nombre côté API. parseInt échouait sur le placeholder sans o:id.
+        const sameCreator = neCreator !== undefined &&
+                            String(element.creatorId) === String(neCreator);
+        if (sameCreator) {
+            // Remplace l'expertise du créateur — une seule fois. Si la base
+            // contient déjà des doublons pour ce créateur (séquelles du bug de
+            // pagination), ils sont absorbés ici au lieu d'être recopiés.
+            if (!del && !replaced) { acc.push(ne); replaced = true; }
         } else {
             // Conserve toutes les autres expertises (y compris ScanR)
             acc.push(element);
         }
         return acc;
     }, []);
+
+    // Filet de sécurité : si aucune entrée n'a été remplacée (placeholder absent,
+    // créateur non résolu…), on ajoute quand même l'expertise créée. Sans cela
+    // elle était perdue en mémoire et le clic suivant en créait une seconde.
+    if (!del && !replaced && ne?.['o:id']) d.expertises.push(ne);
+
     formatKeyword(d);
+
+    // Anomalie : l'expertise vient d'être écrite mais n'est pas reconnue comme
+    // appartenant au créateur courant (item créé sans dcterms:creator exploitable).
+    // On le signale plutôt que de laisser l'interface reproposer « Ajouter »,
+    // ce qui produirait un doublon à chaque clic.
+    if (!del && ne?.['o:id'] && !d.hasExpert) {
+        console.warn(`[validExpertises] Expertise #${ne['o:id']} créée mais sans créateur exploitable`,
+                     ne['dcterms:creator']);
+        toast('Enregistrement incertain — rechargez la page avant de renoter',
+              'err',
+              `L'expertise #${ne['o:id']} a été créée mais n'a pas pu être rattachée. ` +
+              `Ne recliquez pas : cela créerait un doublon. ` +
+              `Contactez votre chargée de valorisation si le problème persiste.`);
+    }
+
     kw.selectAll('.expertise-row, .level-selector, .save-status, .rank-button').remove();
     renderExpertise(kw);
 }
@@ -2634,23 +2682,53 @@ function setRankForKeyword(d) {
         .select('.level-dots').html(levelDots(d.rank));
 }
 
+// L'API Omeka S renvoie ses erreurs avec un corps JSON et sans lever d'exception
+// (postData fait un simple response.json()). Sans cette vérification, un échec
+// d'écriture passait pour un succès et l'opérateur recliquait, créant un doublon.
+function apiErrorMessage(res) {
+    if (!res) return "aucune réponse de l'API";
+    const errs = res.errors;
+    if (errs) {
+        if (typeof errs === 'string') return errs;
+        const parts = [];
+        for (const k in errs) {
+            const v = errs[k];
+            parts.push(Array.isArray(v) ? v.join(', ')
+                     : typeof v === 'object' ? JSON.stringify(v)
+                     : String(v));
+        }
+        if (parts.length) return parts.join(' — ');
+    }
+    if (res.message) return String(res.message);
+    return "réponse inattendue de l'API";
+}
+
 function getCreatorExpertise(d) {
-    return d.expertises.find(e => parseInt(e.creatorId) == cfg.creatorId);
+    // Privilégie une expertise réelle (avec o:id) : le placeholder inséré par
+    // formatKeyword porte le même creatorId mais n'a pas d'identifiant, et
+    // ferait échouer updateExpertise / deleteExpertise.
+    return d.expertises.find(e => e['o:id'] && String(e.creatorId) === String(cfg.creatorId))
+        || d.expertises.find(e => String(e.creatorId) === String(cfg.creatorId));
 }
 
 async function createExpertise(e, d) {
     try {
         const ne = await a.omk.createItem(getExpertiseValues(d));
+        if (!ne?.['o:id']) throw new Error(apiErrorMessage(ne));
         showNewExpertise(d, ne);
         setRankForKeyword(d);
     } catch (err) {
-        toast('Erreur lors de la création — ' + (err.message || err), 'err');
+        toast('Erreur lors de la création', 'err',
+              (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
     }
 }
 
 async function updateExpertise(e, d) {
     try {
         const expEntry = getCreatorExpertise(d);
+        if (!expEntry?.['o:id']) {
+            throw new Error("expertise introuvable — rechargez la fiche avant de renoter");
+        }
         const rankPropId  = a.omk.getPropId(cfg.rankProp);
         const titlePropId = a.omk.getPropId('dcterms:title');
         const rank  = document.getElementById(`rv-${d.value_resource_id}-${cfg.creatorId}`).innerText;
@@ -2658,26 +2736,35 @@ async function updateExpertise(e, d) {
 
         // Récupère l'item brut et remplace les propriétés au lieu de les concaténer
         const rawItem = await a.omk.getItem(expEntry['o:id']);
+        if (!rawItem?.['o:id']) {
+            throw new Error("impossible de relire l'expertise avant modification");
+        }
         rawItem[cfg.rankProp]    = [{ '@value': String(rank), 'type': 'literal', 'property_id': rankPropId }];
         rawItem['dcterms:title'] = [{ '@value': titre, 'type': 'literal', 'property_id': titlePropId }];
 
         const ne = await a.omk.updateRessource(expEntry['o:id'], null, 'items', rawItem, 'PUT');
+        if (!ne?.['o:id']) throw new Error(apiErrorMessage(ne));
         showNewExpertise(d, ne);
         setRankForKeyword(d);
     } catch (err) {
-        toast('Erreur lors de la modification — ' + (err.message || err), 'err');
+        toast('Erreur lors de la modification', 'err',
+              (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
     }
 }
 
 async function deleteExpertise(e, d) {
     try {
         const exp = getCreatorExpertise(d);
+        if (!exp?.['o:id']) {
+            throw new Error("expertise introuvable — rechargez la fiche");
+        }
         await a.omk.deleteItem(exp);
         showNewExpertise(d, exp, true);
         setRankForKeyword(d);
         d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
     } catch (err) {
-        toast('Erreur lors de la suppression — ' + (err.message || err), 'err');
+        toast('Erreur lors de la suppression', 'err',
+              (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
     }
 }
 
@@ -2787,17 +2874,32 @@ function esc(s) {
     return d.innerHTML;
 }
 
-function toast(msg, type = 'info') {
+function toast(msg, type = 'info', detail = '') {
     const c  = document.getElementById('toasts');
     const el = document.createElement('div');
-    el.className   = `toast ${type}`;
-    el.textContent = msg;
+    el.className = `toast ${type}`;
+
+    const main = document.createElement('div');
+    main.textContent = msg;
+    el.appendChild(main);
+
+    // Ligne de détail optionnelle (message d'erreur de l'API, marche à suivre…)
+    if (detail) {
+        const d = document.createElement('div');
+        d.className   = 'toast-detail';
+        d.textContent = detail;
+        el.appendChild(d);
+    }
+
     c.appendChild(el);
+
+    // Les erreurs restent affichées plus longtemps : elles portent une consigne à lire.
+    const delay = type === 'err' ? 8000 : 3200;
     setTimeout(() => {
         el.style.opacity   = '0';
         el.style.transform = 'translateX(40px)';
         setTimeout(() => el.remove(), 320);
-    }, 3200);
+    }, delay);
 }
 
 // Expose showBrowse globalement (utilisé dans le onclick inline du personBanner).
