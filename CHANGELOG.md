@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.3.0] — 2026-09-08
+
+### Améliorations ergonomiques
+
+**Confirmation visible de l'enregistrement (`index.html`)**
+Après une notation, le seul retour était le basculement discret du bouton
+« Ajouter » en « Modifier ». Un message « ✓ Enregistré » s'affiche désormais à
+côté du mot-clef concerné pendant quelques secondes, et « ✗ Non enregistré » en
+cas d'échec. L'emplacement `.save-status` et ses styles existaient déjà dans le
+code mais n'avaient jamais été utilisés.
+
+**Boutons verrouillés pendant l'écriture (`index.html`)**
+Les boutons Ajouter, Modifier et Supprimer d'un mot-clef sont désactivés le temps
+de la requête. Un bouton qui ne réagit pas visiblement invite à recliquer, et
+chaque clic déclenchait une écriture concurrente avant que le premier
+enregistrement n'ait basculé le bouton en « Modifier ». Le déverrouillage est
+placé dans un `finally`, donc garanti même en cas d'erreur.
+
+**Indicateur de progression (`index.html`, `main.css`)**
+L'en-tête de la fiche affiche le nombre de mots-clefs déjà évalués par
+l'utilisateur courant sur le total (« 12 / 30 évalués »), et signale la complétion
+(« ✓ 30 mots-clefs évalués ») en vert. Rien n'indiquait jusqu'ici où en était
+l'enseignant·e-chercheur·se dans sa validation, ni s'il ou elle l'avait terminée.
+
+**Guide EC enrichi et présenté à la première ouverture (`index.html`, `main.css`)**
+Le bandeau « Comment noter vos mots-clefs ? » précise désormais qu'il faut cliquer
+sur « Ajouter » pour enregistrer une note, et que chaque mot-clef est enregistré
+séparément — on peut donc interrompre et reprendre plus tard avec le même lien.
+Ce guide est en outre présenté en modale à la première ouverture du lien dans un
+navigateur donné, avec un bouton « J'ai compris » ; il reste ensuite consultable
+via le bandeau. Le contenu de la modale est recopié depuis le bandeau, ce qui
+évite toute divergence entre les deux formulations. La clé de mémorisation est
+versionnée, afin de pouvoir re-présenter le guide si son contenu évolue.
+Réservé aux ECs. Si le `localStorage` est indisponible, la modale ne s'affiche pas
+plutôt que de réapparaître à chaque ouverture.
+
+### Note
+
+Un mot-clef ajouté par l'EC reçoit automatiquement une expertise à 0
+(« Sans avis ») et compte donc immédiatement comme évalué dans cet indicateur.
+Cette valeur par défaut mériterait d'être reconsidérée : ajouter un mot-clef
+signifie précisément que le domaine concerne l'EC.
+
+## [0.2.13] — 2026-09-08
+
+### Correctifs
+
+**Niveaux d'expertise incohérents entre deux ouvertures (`index.html`)**
+Lorsque plusieurs expertises du même auteur coexistaient sur un mot-clef —
+séquelles du bug de pagination corrigé en 0.2.12 — trois parties du code
+désignaient des enregistrements différents : le niveau surligné dans le sélecteur
+provenait du premier de la liste, les pastilles et la couleur de la carte du
+dernier, et la modification portait sur le premier. L'utilisateur pouvait donc
+voir une note, en enregistrer une autre, et retrouver la première au rechargement.
+L'ordre de la liste dépendant de celui renvoyé par l'API, la note affichée
+pouvait varier d'une ouverture à l'autre sans qu'aucune modification n'ait eu lieu.
+
+Une fonction unique `latestCreatorExpertise` sélectionne désormais l'expertise de
+référence — la plus récente par `o:created`, départagée par identifiant à date
+égale — et l'affichage comme l'édition s'appuient sur elle. La note montrée est
+donc toujours celle qui sera modifiée, quel que soit le nombre de doublons et
+quel que soit l'ordre de réponse de l'API.
+
+**Signalement des expertises en double (`index.html`)**
+Les mots-clefs portant plusieurs expertises du même auteur sont désormais
+signalés à l'opérateur, avec leur nombre, afin d'identifier ce qui reste à
+nettoyer en base. Le message n'est pas affiché aux ECs ni aux DU.
+
+### Améliorations
+
+**Suggestion de mots-clefs retirée en vue DU (`index.html`)**
+La barre « Ajouter un mot-clef… » restait accessible aux directeur·rice·s
+d'unité sur les fiches EC. Le rôle du DU se limitant au suivi de son
+laboratoire, elle est désormais masquée dans ce mode. Les ECs et les opérateurs
+conservent la fonctionnalité.
+
+### Note
+
+Ce correctif rend l'affichage cohérent malgré les doublons présents en base, mais
+ne les supprime pas : leur nettoyage reste une opération distincte.
+
 ## [0.2.12] — 2026-09-07 — correctif urgent
 
 ### Correctifs critiques

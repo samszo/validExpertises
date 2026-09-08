@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.2.12</div>
+            <div class="app-dropdown-version">v0.3.0</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -246,13 +246,16 @@
                     <li><strong>Niveau 4</strong> — Expertise centrale</li>
                 </ul>
                 <p>Si des mots-clefs vous semblent manquants, vous pouvez en ajouter via le champ de recherche ci-dessous. S'ils n'apparaissent pas dans les suggestions, vous pouvez en proposer un nouveau — il sera soumis à validation par le SVR.</p>
+                <p><strong>Cliquez sur « Ajouter » pour enregistrer votre note.</strong> Un message « ✓ Enregistré » apparaît sous le mot-clef.</p>
+                <p>Chaque mot-clef est enregistré séparément : vous pouvez reprendre plus tard avec le même lien.</p>
             </div>
         </div>
 
         <div class="kw-header">
             <h2>Mots-clefs &amp; expertises</h2>
+            <span id="kwProgress" class="kw-progress hidden"></span>
             <div class="kw-toolbar">
-                <div class="autocomplete-wrap">
+                <div class="autocomplete-wrap" id="kwAddWrap">
                     <input type="text" id="kwSearchInput" placeholder="Ajouter un mot-clef…" autocomplete="off" />
                     <div id="kwAcHint" class="ac-hint hidden"><span class="ac-hint-dot"></span>Recherche…</div>
                     <div id="kwAcDropdown" class="autocomplete-dropdown hidden"></div>
@@ -1278,6 +1281,8 @@ document.getElementById('kwSearchInput').addEventListener('blur', () => {
 
 // ── BANDEAU GUIDE EC ─────────────────────────────────────────────────────────
 const EC_GUIDE_KEY = 'validExpertises_guide_collapsed';
+// Versionnée : permettra de re-présenter le guide si son contenu change (v0.3.1)
+const EC_WELCOME_KEY = 'validExpertises_guide_seen_v030';
 
 if (fromUrl) {
     const banner  = document.getElementById('ecGuideBanner');
@@ -1296,6 +1301,32 @@ if (fromUrl) {
         arrow.textContent = collapsed ? '▶' : '▼';
         localStorage.setItem(EC_GUIDE_KEY, collapsed ? '1' : '0');
     });
+
+    // Première ouverture dans ce navigateur : présente le guide en modale.
+    // Le contenu est recopié depuis le bandeau pour éviter toute divergence
+    // entre les deux formulations.
+    let alreadySeen = false;
+    try { alreadySeen = localStorage.getItem(EC_WELCOME_KEY) === '1'; }
+    catch (e) { alreadySeen = true; } // localStorage indisponible : on n'insiste pas
+
+    if (!alreadySeen) {
+        const overlay = document.getElementById('ecWelcomeOverlay');
+        document.getElementById('ecWelcomeBody').innerHTML = body.innerHTML;
+        overlay.classList.add('open');
+
+        const closeWelcome = () => {
+            overlay.classList.remove('open');
+            try { localStorage.setItem(EC_WELCOME_KEY, '1'); } catch (e) { /* non bloquant */ }
+        };
+        document.getElementById('btnEcWelcomeClose').addEventListener('click', closeWelcome);
+        overlay.addEventListener('click', e => { if (e.target === overlay) closeWelcome(); });
+        document.addEventListener('keydown', function onWelcomeEsc(e) {
+            if (e.key === 'Escape' && overlay.classList.contains('open')) {
+                closeWelcome();
+                document.removeEventListener('keydown', onWelcomeEsc);
+            }
+        });
+    }
 }
 
 // ── LANGUETTE PROTOCOLE ──────────────────────────────────────────────────────
@@ -1950,6 +1981,11 @@ function lockDlMode() {
     const labSelect = document.getElementById('labSelect');
     if (labSelect) labSelect.style.display = 'none';
 
+    // Masque la barre « Ajouter un mot-clef… » : le DU assure le suivi de son
+    // laboratoire, il n'a pas vocation à suggérer des concepts sur les fiches EC.
+    const kwAddWrap = document.getElementById('kwAddWrap');
+    if (kwAddWrap) kwAddWrap.classList.add('hidden');
+
     // Masque l'encadré DL (boutons "Envoyer les liens" réservés aux opérateurs)
     // sera caché après renderDlZone via un flag
     window._dlMode = true;
@@ -2313,6 +2349,25 @@ async function loadPerson(personId) {
                 );
             }
 
+            // Doublons hérités : plusieurs expertises du même auteur sur un mot-clef.
+            // L'affichage et l'édition portent désormais sur la plus récente, mais
+            // les enregistrements surnuméraires restent à nettoyer en base.
+            const dupKws = keywords.filter(c => c.dupCount > 1);
+            if (dupKws.length && !fromUrl && !fromDL) {
+                const detail = dupKws
+                    .slice(0, 6)
+                    .map(c => `${c.display_title} (${c.dupCount})`)
+                    .join(', ');
+                console.warn('[validExpertises] Doublons d\'expertise :',
+                    dupKws.map(c => ({ motClef: c.display_title, nb: c.dupCount })));
+                toast(
+                    `⚠ ${dupKws.length} mot(s)-clef(s) avec des expertises en double`,
+                    'err',
+                    `La note affichée est la plus récente. À nettoyer en base : ${detail}` +
+                    (dupKws.length > 6 ? `, et ${dupKws.length - 6} autre(s).` : '.')
+                );
+            }
+
             computeScanrIndicator(keywords);
             renderKeywords();
         }
@@ -2370,16 +2425,25 @@ function computeScanrIndicator(kws) {
 function formatKeyword(c) {
     c.hasExpert = false;
     c.rank = null; // null = non noté, 0 = sans avis, 1-4 = niveaux
+    c.dupCount = 0;
     c.expertises = c.expertises.filter(e => e['o:id'] && e !== c['@annotation']);
     if (c['@annotation']) c.expertises.unshift(c['@annotation']);
     c.expertises.forEach(e => {
         formatExpertise(e);
         e.kw = c.value_resource_id;
-        if (String(e.creatorId) === String(cfg.creatorId)) {
-            c.hasExpert = true;
-            c.rank = e.rank; // 0 = sans avis, 1-4 = niveaux
-        }
     });
+
+    // Une seule expertise de référence, la plus récente : garantit que le niveau
+    // affiché est bien celui qui sera modifié.
+    const mine = latestCreatorExpertise(c);
+    if (mine) {
+        c.hasExpert = true;
+        c.rank = mine.rank; // 0 = sans avis, 1-4 = niveaux
+        c.dupCount = c.expertises.filter(
+            e => e['o:id'] && String(e.creatorId) === String(cfg.creatorId)
+        ).length;
+    }
+
     if (!c.hasExpert && !window._dlReadOnly) c.expertises.push({
         rank: null, kw: c.value_resource_id,
         creatorId: cfg.creatorId, creatorTitle: creator['o:title'], created: '-'
@@ -2404,6 +2468,28 @@ function formatExpertise(e) {
     const isOp     = e.creatorId !== 'scanr' && !isSelf;
     e.creatorTitle = (fromUrl || fromDL) && isOp ? 'Proposition du SVR' : rawName;
     e.created      = e['o:created'] ? new Date(e['o:created']['@value']).toLocaleDateString() : '-';
+    // Horodatage exploitable pour départager plusieurs expertises d'un même auteur
+    e.createdTs    = e['o:created'] ? (Date.parse(e['o:created']['@value']) || 0) : 0;
+}
+
+// Expertise de référence du créateur courant : la plus récente.
+// Quand plusieurs enregistrements coexistent (doublons hérités du bug de
+// pagination), l'affichage et l'édition DOIVENT désigner le même, sinon la note
+// montrée à l'utilisateur n'est pas celle qu'il modifie.
+function latestCreatorExpertise(d) {
+    const mine = (d.expertises || [])
+        .filter(e => String(e.creatorId) === String(cfg.creatorId));
+    if (!mine.length) return null;
+    // Une expertise réelle prime toujours sur le placeholder (qui n'a pas d'o:id)
+    const real = mine.filter(e => e['o:id']);
+    const pool = real.length ? real : mine;
+    return pool.reduce((best, cur) => {
+        if ((cur.createdTs || 0) !== (best.createdTs || 0)) {
+            return (cur.createdTs || 0) > (best.createdTs || 0) ? cur : best;
+        }
+        // Même date : l'identifiant le plus élevé est le plus récent
+        return (cur['o:id'] || 0) > (best['o:id'] || 0) ? cur : best;
+    });
 }
 
 
@@ -2411,7 +2497,23 @@ function formatExpertise(e) {
 // RENDU D3 — MOTS-CLEFS
 // ──────────────────────────────────────────────
 
+// Progression de l'utilisateur courant sur la fiche : combien de mots-clefs
+// il a déjà évalués. Donne un repère d'avancement et signale la complétion.
+function updateKwProgress() {
+    const el = document.getElementById('kwProgress');
+    if (!el) return;
+    const total = keywords.length;
+    if (!total) { el.classList.add('hidden'); return; }
+    const done = keywords.filter(c => c.hasExpert).length;
+    el.classList.remove('hidden');
+    el.classList.toggle('complete', done === total);
+    el.textContent = done === total
+        ? `✓ ${total} mot${total > 1 ? 's' : ''}-clef${total > 1 ? 's' : ''} évalué${total > 1 ? 's' : ''}`
+        : `${done} / ${total} évalué${done > 1 ? 's' : ''}`;
+}
+
 function renderKeywords() {
+    updateKwProgress();
     if (!keywords.length) { showEmpty(); return; }
 
     // Ré-applique le tri actif si défini
@@ -2548,7 +2650,7 @@ function renderExpertise(kw) {
     // Sélecteur 4 niveaux — opérateur courant (ou placeholder)
     kw.append('div').attr('class', 'level-selector')
         .html(d => {
-            const exp = d.expertises.find(e => String(e.creatorId) === String(cfg.creatorId));
+            const exp = latestCreatorExpertise(d);
             if (!exp) return '';
             const rank = exp.rank ?? null;
             const levels = [
@@ -2608,6 +2710,32 @@ function renderExpertise(kw) {
 // ──────────────────────────────────────────────
 // CRUD — EXPERTISES
 // ──────────────────────────────────────────────
+
+// Verrouille les boutons d'un mot-clef pendant une écriture. Sans cela, un bouton
+// qui ne réagit pas visiblement invite à recliquer, et chaque clic déclenche une
+// création concurrente avant que la première n'ait basculé le bouton en « Modifier ».
+function setKwButtonsBusy(kwId, busy) {
+    ['btnCreate', 'btnUpdate', 'btnDelete'].forEach(prefix => {
+        const btn = document.getElementById(prefix + kwId);
+        if (btn) btn.disabled = busy;
+    });
+}
+
+// Confirmation d'enregistrement affichée à côté du mot-clef concerné.
+// L'emplacement .save-status existait déjà mais n'était jamais rempli.
+function setSaveStatus(kwId, msg, type = 'ok') {
+    const el = document.getElementById('ss-' + kwId);
+    if (!el) return;
+    el.className   = `save-status ${type}`;
+    el.textContent = msg;
+    clearTimeout(el._clearTimer);
+    el._clearTimer = setTimeout(() => {
+        if (el.textContent === msg) {
+            el.textContent = '';
+            el.className   = 'save-status';
+        }
+    }, 4000);
+}
 
 function getExpertiseValues(d, update = false, create = false) {
     const rank  = create ? d.rank : document.getElementById(`rv-${d.value_resource_id}-${cfg.creatorId}`).innerText;
@@ -2671,10 +2799,14 @@ function showNewExpertise(d, ne, del = false) {
 
     kw.selectAll('.expertise-row, .level-selector, .save-status, .rank-button').remove();
     renderExpertise(kw);
+
+    // hasExpert vient de changer pour ce mot-clef : le compteur doit suivre.
+    // renderExpertise ne redessine que la carte, pas l'en-tête.
+    updateKwProgress();
 }
 
 function setRankForKeyword(d) {
-    const exp = d.expertises.find(e => String(e.creatorId) === String(cfg.creatorId));
+    const exp = latestCreatorExpertise(d);
     d.rank = exp ? (exp.rank || 0) : 0;
     const card = document.getElementById('kw-card-' + d.value_resource_id);
     if (card) card.style.borderLeftColor = levelBorderColor(d.rank, d.scanrLabel);
@@ -2704,26 +2836,33 @@ function apiErrorMessage(res) {
 }
 
 function getCreatorExpertise(d) {
-    // Privilégie une expertise réelle (avec o:id) : le placeholder inséré par
-    // formatKeyword porte le même creatorId mais n'a pas d'identifiant, et
-    // ferait échouer updateExpertise / deleteExpertise.
-    return d.expertises.find(e => e['o:id'] && String(e.creatorId) === String(cfg.creatorId))
-        || d.expertises.find(e => String(e.creatorId) === String(cfg.creatorId));
+    // Même sélection que l'affichage : l'expertise la plus récente du créateur,
+    // en privilégiant une expertise réelle sur le placeholder (sans o:id).
+    // Sans cela, l'utilisateur modifierait un enregistrement différent de celui affiché.
+    return latestCreatorExpertise(d);
 }
 
 async function createExpertise(e, d) {
+    const kwId = d.value_resource_id;
+    setKwButtonsBusy(kwId, true);
     try {
         const ne = await a.omk.createItem(getExpertiseValues(d));
         if (!ne?.['o:id']) throw new Error(apiErrorMessage(ne));
         showNewExpertise(d, ne);
         setRankForKeyword(d);
+        setSaveStatus(kwId, '\u2713 Enregistr\u00e9');
     } catch (err) {
+        setSaveStatus(kwId, '\u2717 Non enregistr\u00e9', 'err');
         toast('Erreur lors de la création', 'err',
               (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
+    } finally {
+        setKwButtonsBusy(kwId, false);
     }
 }
 
 async function updateExpertise(e, d) {
+    const kwId = d.value_resource_id;
+    setKwButtonsBusy(kwId, true);
     try {
         const expEntry = getCreatorExpertise(d);
         if (!expEntry?.['o:id']) {
@@ -2746,13 +2885,19 @@ async function updateExpertise(e, d) {
         if (!ne?.['o:id']) throw new Error(apiErrorMessage(ne));
         showNewExpertise(d, ne);
         setRankForKeyword(d);
+        setSaveStatus(kwId, '\u2713 Modification enregistr\u00e9e');
     } catch (err) {
+        setSaveStatus(kwId, '\u2717 Non enregistr\u00e9', 'err');
         toast('Erreur lors de la modification', 'err',
               (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
+    } finally {
+        setKwButtonsBusy(kwId, false);
     }
 }
 
 async function deleteExpertise(e, d) {
+    const kwId = d.value_resource_id;
+    setKwButtonsBusy(kwId, true);
     try {
         const exp = getCreatorExpertise(d);
         if (!exp?.['o:id']) {
@@ -2762,9 +2907,13 @@ async function deleteExpertise(e, d) {
         showNewExpertise(d, exp, true);
         setRankForKeyword(d);
         d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
+        setSaveStatus(kwId, '\u2713 Note supprim\u00e9e');
     } catch (err) {
+        setSaveStatus(kwId, '\u2717 Suppression \u00e9chou\u00e9e', 'err');
         toast('Erreur lors de la suppression', 'err',
               (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
+    } finally {
+        setKwButtonsBusy(kwId, false);
     }
 }
 
@@ -2914,6 +3063,17 @@ window.showBrowse = () => { person = null; showBrowse(); };
     <span class="proto-tab-icon">📋</span>
     <span>Protocole de validation</span>
     <span class="proto-tab-arrow">▲</span>
+</div>
+
+<!-- Guide EC affiché une seule fois par navigateur (première ouverture du lien) -->
+<div class="overlay" id="ecWelcomeOverlay">
+    <div class="modal ec-welcome-modal">
+        <h2>📖 Comment noter vos mots-clefs ?</h2>
+        <div class="ec-welcome-body" id="ecWelcomeBody"></div>
+        <div class="modal-actions">
+            <button class="btn btn-primary" id="btnEcWelcomeClose">J'ai compris</button>
+        </div>
+    </div>
 </div>
 
 <div class="proto-overlay" id="protoOverlay">

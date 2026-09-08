@@ -117,6 +117,12 @@
             margin: auto;
         }
         .modal h2 { font-size: 1rem; margin-bottom: 1.2rem; color: var(--primary); }
+        .ec-welcome-modal { max-width: 560px; }
+        .ec-welcome-body { font-size: .86rem; line-height: 1.6; color: var(--text); }
+        .ec-welcome-body p  { margin: 0 0 .8rem; }
+        .ec-welcome-body p:last-child { margin-bottom: 0; }
+        .ec-welcome-body ul { margin: 0 0 .8rem; padding-left: 1.3rem; }
+        .ec-welcome-body li { margin-bottom: .2rem; }
         .cfg-section-title {
             font-size: .7rem; font-weight: 600; text-transform: uppercase;
             letter-spacing: .06em; color: var(--muted);
@@ -373,6 +379,16 @@
             gap: .5rem;
         }
         .kw-header h2 { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; flex-shrink: 0; }
+        .kw-progress {
+            font-size: .76rem; font-weight: 600; color: var(--muted);
+            padding: .15rem .55rem; border-radius: 10px;
+            background: var(--bg); border: 1px solid var(--border);
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .kw-progress.complete {
+            color: var(--success); border-color: var(--success);
+            background: color-mix(in srgb, var(--success) 10%, transparent);
+        }
         .kw-toolbar {
             display: flex;
             align-items: center;
