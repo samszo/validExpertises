@@ -1,5 +1,96 @@
 # Changelog
 
+## [0.3.1] — 2026-09-23
+
+### Nouvelles fonctionnalités
+
+**Retrait d'un mot-clef ajouté à la main (`index.html`, `main.css`)**
+Une croix discrète, révélée au survol de la carte, permet de retirer de la fiche
+un mot-clef qui y avait été ajouté par erreur — faute de frappe, doublon,
+mauvaise sélection. Elle n'apparaît que sur les mots-clefs ajoutés manuellement :
+ceux issus de l'extraction ScanR portent une annotation `curation:rank` et
+restent en place. Le retrait est également refusé dès qu'un autre intervenant a
+noté le mot-clef, pour ne pas effacer son travail à son insu.
+
+Le retrait détache le concept de toutes les propriétés configurées et supprime
+les expertises associées — sans cela elles resteraient en base en pointant vers
+un mot-clef absent de la fiche, donc invisibles. Le `skos:Concept` lui-même est
+conservé : les concepts devenus orphelins relèvent d'un nettoyage distinct.
+L'item est relu juste avant l'écriture et la réponse du serveur est vérifiée.
+
+Disponible pour les enseignant·e·s-chercheur·se·s sur leur fiche et pour les
+opérateurs. Volontairement indisponible en vue DU, dont le rôle se limite au suivi.
+
+**Note technique** — garde-fous ajoutés au fil des relectures : un verrou global
+pendant le retrait (chaque retrait relit la fiche entière avant de la réécrire ;
+deux retraits concurrents auraient lu la même version et le second aurait annulé
+le premier), la remise à zéro du quota en début de chargement (une sortie
+anticipée laissait sinon une valeur périmée), la réservation de la place du
+bouton dans le titre de la carte, la pose du verrou après la confirmation et non
+avant — sinon une annulation sortait sans passer par le `finally` et laissait le
+verrou fermé pour le reste de la session — et l'extension de ce verrou à l'ajout
+de mot-clef ainsi qu'à la suggestion, un ajout concurrent étant sinon écrasé par
+la réécriture de la fiche. L'identifiant de la fiche est figé au début de
+l'opération : l'utilisateur pouvant revenir à la liste entre deux écritures, les
+étapes suivantes échouaient sinon sur une fiche pourtant correctement traitée.
+
+La fiche n'est plus masquée pendant le retrait : `setLoading(true)` cachait le
+bandeau, la grille et la barre d'action, et `setLoading(false)` ne les réaffiche
+pas. Un retrait en échec laissait donc une page vide, à recharger manuellement.
+Le retour visuel passe désormais par le curseur et le grisage du bouton, comme
+pour l'enregistrement d'une note.
+
+### Correctifs
+
+**Page vide après une erreur d'ajout ou de suggestion (`index.html`)**
+Même cause que ci-dessus, mais sur des chemins antérieurs à cette version :
+l'ajout d'un mot-clef et la création d'une suggestion masquaient la fiche le
+temps de l'écriture et ne la rétablissaient pas en cas d'erreur de l'API.
+L'utilisateur se retrouvait devant une page vide et devait recharger. Les deux
+chemins reconstruisent désormais l'affichage à partir des données déjà en
+mémoire, sans relire l'API — l'erreur venant justement de là.
+
+**Suggestion annoncée comme réussie alors qu'elle avait échoué (`index.html`)**
+`addKeyword` signalait ses erreurs mais ne les remontait pas à son appelant. La
+création d'une suggestion enchaînait donc sur « suggéré et ajouté » même lorsque
+le rattachement à la fiche avait échoué, laissant un `skos:Concept` orphelin et
+une suggestion décomptée du quota. `addKeyword` renvoie maintenant l'issue du
+rattachement, et la suggestion n'est annoncée — ni décomptée — qu'en cas de
+succès réel.
+
+**Fiche EC sans issue en vue DU (`index.html`)**
+Un directeur·rice d'unité qui ouvrait la fiche d'un EC de son laboratoire ne
+pouvait plus revenir à la liste. Deux causes cumulées : le bouton « Retour à la
+liste » n'était rendu que si `fromUrl` était faux, or un lien DU porte aussi
+`idCreator` et `t` ; et `lockDlMode` neutralisait `showBrowse` par une fonction
+vide. Le bouton est désormais affiché en vue DU et le retour ramène à la liste du
+laboratoire. Le périmètre reste verrouillé : le laboratoire est refixé sur celui
+du lien à chaque retour et le sélecteur reste masqué.
+
+**Envoi d'email écrasant l'application (`index.html`)**
+Les liens `mailto:` étaient ouverts via `window.location.href`. Avec un client
+natif le navigateur intercepte sans quitter la page, mais lorsqu'un webmail
+(Zimbra, Gmail…) est enregistré comme gestionnaire du protocole, le navigateur
+naviguait réellement et la fiche en cours était remplacée. Les deux envois — vers
+un EC et vers un DU — passent désormais par un lien `target="_blank"`, qui laisse
+l'application intacte. `window.open` n'est pas utilisé : il est bloqué comme
+popup par défaut.
+
+**Suppressions annoncées à tort comme réussies (`index.html`)**
+La couche d'accès à l'API ne contrôle pas le statut HTTP : un refus du serveur
+(droits insuffisants, item déjà supprimé…) revient sous forme de réponse JSON
+d'erreur, sans lever d'exception. La suppression d'une note affichait donc
+« ✓ Note supprimée » et la retirait de l'écran alors qu'elle restait en base,
+pour réapparaître au rechargement suivant. Les réponses de suppression sont
+désormais vérifiées, dans le retrait d'un mot-clef comme dans la suppression
+d'une note — au même titre que les créations et les mises à jour depuis la 0.2.12.
+
+**Quota de suggestions consommé par un mot-clef retiré (`index.html`)**
+Le quota était calculé en comptant les concepts créés par l'EC, indépendamment de
+leur rattachement. Un EC qui se trompait de libellé, retirait son mot-clef et le
+recréait aurait donc brûlé deux de ses trois suggestions. Le décompte porte
+désormais sur les concepts effectivement attachés à sa fiche.
+
 ## [0.3.0] — 2026-09-08
 
 ### Améliorations ergonomiques

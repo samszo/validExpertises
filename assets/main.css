@@ -461,8 +461,35 @@
             box-shadow: var(--shadow);
             border-left: 4px solid var(--neutral);
             transition: border-color .3s, box-shadow .2s;
+            position: relative;
         }
         .kw-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+
+        /* Retrait d'un mot-clef ajouté à la main — discret, révélé au survol */
+        .kw-remove-btn {
+            position: absolute; top: .5rem; right: .5rem;
+            width: 22px; height: 22px; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            border: none; border-radius: 50%;
+            background: transparent; color: var(--muted);
+            font-size: 1.1rem; line-height: 1; font-family: inherit;
+            cursor: pointer; opacity: .35;
+            transition: opacity .15s, background .15s, color .15s;
+        }
+        .kw-card:hover .kw-remove-btn { opacity: .75; }
+        /* Réserve la place du bouton : sans cela un titre long passe dessous */
+        .kw-card:has(.kw-remove-btn) .kw-name { padding-right: 1.7rem; }
+        .kw-remove-btn:hover:not(:disabled) {
+            opacity: 1; background: #fdecec; color: var(--danger);
+        }
+        .kw-remove-btn:focus-visible {
+            opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px;
+        }
+        .kw-remove-btn:disabled { opacity: .2; cursor: default; }
+        /* Sur écran tactile, pas de survol : le bouton reste visible */
+        @media (hover: none) {
+            .kw-remove-btn { opacity: .6; }
+        }
 
         .kw-name { font-weight: 600; font-size: .92rem; margin-bottom: .3rem; }
         .level-dots { margin-left: .5rem; vertical-align: middle; }

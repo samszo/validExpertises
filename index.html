@@ -25,7 +25,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.3.0</div>
+            <div class="app-dropdown-version">v0.3.1</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -833,6 +833,10 @@ async function migrateExpertises() {
     if (cfg.keyCred) {
         const ok = await saveSettings();
         if (ok) {
+            // Ordre significatif : un lien DU porte aussi idCreator et t, donc
+            // fromUrl y est vrai. lockEcMode neutralise showBrowse et masque le
+            // Browse ; lockDlMode doit passer APRÈS pour rétablir la navigation
+            // et la liste du laboratoire. Ne pas inverser.
             if (fromUrl) lockEcMode();
             if (fromDL)  lockDlMode();
             if (authorId) loadPerson(authorId);
@@ -1475,15 +1479,25 @@ function resetFilter() {
 // AJOUT D'UN MOT-CLEF
 // ──────────────────────────────────────────────
 
+// Renvoie true si le mot-clef est bien rattaché à la fiche, false sinon.
+// Les erreurs sont signalées ici même : un appelant qui reçoit false n'a pas à
+// réafficher de message, mais il ne doit surtout pas annoncer une réussite.
 async function addKeyword(conceptId, conceptLabel, silent = false) {
-    if (!person) { toast("Chargez d'abord une personne", 'err'); return; }
+    if (!person) { toast("Chargez d'abord une personne", 'err'); return false; }
+
+    // Un retrait en cours réécrit la fiche entière à partir d'une lecture
+    // antérieure : un ajout simultané serait effacé par ce PUT.
+    if (isRemovingKeyword) {
+        toast('Retrait en cours, patientez…', 'info');
+        return false;
+    }
 
     // Vérifie le doublon sur toutes les propriétés configurées
     const allExisting = cfg.personPropExp.split(',').map(p => p.trim()).filter(Boolean)
         .flatMap(prop => person[prop] || []);
     if (allExisting.find(v => v.display_title == conceptLabel)) {
         toast('Ce mot-clef est déjà présent', 'err');
-        return;
+        return false;
     }
 
     try {
@@ -1515,9 +1529,11 @@ async function addKeyword(conceptId, conceptLabel, silent = false) {
         await loadPerson(person['o:id']);
         sortKeywords('rank', -1);
         if (!silent) toast(`« ${conceptLabel} » ajouté`, 'ok');
+        return true;
     } catch (e) {
         toast('Erreur : ' + e.message, 'err');
-        setLoading(false);
+        restoreAfterError();
+        return false;
     }
 }
 
@@ -1993,8 +2009,15 @@ function lockDlMode() {
     // Si dlCanEdit = false, les fiches EC sont en lecture seule pour le DL
     if (!pa.dlCanEdit) window._dlReadOnly = true;
 
-    // Neutralise showBrowse
-    window.showBrowse = () => {};
+    // Retour à la liste : autorisé, mais toujours sur le labo du DU.
+    // (showBrowse était neutralisé, ce qui rendait la fiche EC sans issue.)
+    // Le périmètre reste verrouillé : browseLabId est figé sur urlLabId et le
+    // sélecteur de laboratoire est masqué, le DU ne peut pas en changer.
+    window.showBrowse = () => {
+        browseLabId = urlLabId;
+        person      = null;
+        showBrowse();
+    };
 
     // Pré-sélectionne le labo et charge la liste
     if (urlLabId) {
@@ -2078,7 +2101,23 @@ function sendDLEmail(dlMail = '', dlName = '', dlId = null) {
         `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
     );
     const subject = encodeURIComponent(`Validation des domaines d'expertise — ${labName}`);
-    window.location.href = `mailto:${dlMail}?subject=${subject}&body=${body}`;
+    openMailto(`mailto:${dlMail}?subject=${subject}&body=${body}`);
+}
+
+// Ouvre un lien mailto sans quitter l'application.
+// window.location.href navigue réellement lorsqu'un webmail (Zimbra, Gmail…) est
+// enregistré comme gestionnaire du protocole mailto : la fiche en cours était
+// alors remplacée par le webmail. Un lien cliqué avec target="_blank" laisse la
+// page intacte. window.open est évité : il est bloqué comme popup par défaut.
+function openMailto(url) {
+    const a = document.createElement('a');
+    a.href   = url;
+    a.target = '_blank';
+    a.rel    = 'noopener noreferrer';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
 }
 
 // Génère un mailto vers un EC (depuis la vue dispatch du DL)
@@ -2105,7 +2144,7 @@ function sendEcEmail(ecId, ecName, ecMail) {
         `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
     );
     const subject = encodeURIComponent(`Validation de vos domaines d'expertise — ${labName}`);
-    window.location.href = `mailto:${ecMail}?subject=${subject}&body=${body}`;
+    openMailto(`mailto:${ecMail}?subject=${subject}&body=${body}`);
 }
 
 
@@ -2117,6 +2156,13 @@ function sendEcEmail(ecId, ecName, ecMail) {
 
 async function suggestNewKeyword(label) {
     if (!person) return;
+    // Contrôle ici aussi, et non seulement dans addKeyword : le concept est créé
+    // avant le rattachement, un refus en aval laisserait un skos:Concept orphelin
+    // et annoncerait malgré tout « suggéré et ajouté ».
+    if (isRemovingKeyword) {
+        toast('Retrait en cours, patientez…', 'info');
+        return;
+    }
     if (suggestedKwCount >= pa.maxSuggestedKw) {
         toast(`Quota atteint — maximum ${pa.maxSuggestedKw} suggestion${pa.maxSuggestedKw > 1 ? 's' : ''}`, 'err');
         return;
@@ -2135,12 +2181,25 @@ async function suggestNewKeyword(label) {
         suggestedKwCount++;
         updateSuggestQuotaDisplay();
         // Supprime le toast d'addKeyword pour éviter le doublon — on affiche le nôtre après
-        await addKeyword(newConcept['o:id'], label, true);
+        const attache = await addKeyword(newConcept['o:id'], label, true);
+        if (!attache) {
+            // Le concept existe mais n'est pas rattaché : addKeyword a déjà
+            // affiché la cause. Ne pas annoncer une réussite, et rendre la
+            // suggestion consommée plus haut — le quota est de toute façon
+            // recalculé sur les concepts réellement attachés au rechargement.
+            suggestedKwCount = Math.max(0, suggestedKwCount - 1);
+            updateSuggestQuotaDisplay();
+            // Indispensable : addKeyword peut sortir avant son try (mot-clef déjà
+            // présent) sans jamais rétablir l'affichage masqué ici par
+            // setLoading(true). L'appel est sans effet s'il a déjà eu lieu.
+            restoreAfterError();
+            return;
+        }
         toast(`« ${label} » suggéré et ajouté`, 'ok');
     } catch (e) {
         toast('Erreur lors de la création du mot-clef', 'err',
               (e.message || String(e)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
-        setLoading(false);
+        restoreAfterError();
     }
 }
 
@@ -2217,8 +2276,15 @@ async function loadPerson(personId) {
         document.getElementById('loadingMsg').textContent =
             `Chargement de ${getLabel(person)}…`;
 
-        // En mode EC, charge le quota de suggestions existantes
+        // En mode EC, prépare le quota de suggestions. On mémorise ici les concepts
+        // créés par l'EC ; le décompte se fait plus bas, une fois connus les
+        // concepts réellement attachés à la fiche. Compter les concepts créés
+        // ferait qu'un mot-clef retiré continuerait de consommer le quota.
+        let suggestedConceptIds = new Set();
         if (fromUrl) {
+            // Remis à zéro : si le chargement sort avant le décompte (type non
+            // autorisé, accès labo refusé), mieux vaut 0 qu'une valeur périmée.
+            suggestedKwCount = 0;
             try {
                 const creatorPropId = a.omk.getPropId('dcterms:creator');
                 const suggestions   = await a.omk.searchItems(
@@ -2226,9 +2292,10 @@ async function loadPerson(personId) {
                     `&property[0][property]=${creatorPropId}&property[0][type]=res&property[0][text]=${cfg.creatorId}` +
                     `&per_page=1000`
                 );
-                suggestedKwCount = Array.isArray(suggestions) ? suggestions.length : 0;
-            } catch (e) { suggestedKwCount = 0; }
-            updateSuggestQuotaDisplay();
+                suggestedConceptIds = new Set(
+                    (Array.isArray(suggestions) ? suggestions : []).map(x => x['o:id'])
+                );
+            } catch (e) { suggestedConceptIds = new Set(); }
         }
 
         // Vérifie que le type correspond bien à une personne autorisée
@@ -2262,7 +2329,7 @@ async function loadPerson(personId) {
             document.getElementById('personBanner').innerHTML = `
                 <div class="person-banner">
                     <div>
-                        ${fromUrl ? '' : '<button class="btn btn-ghost btn-sm btn-back" onclick="showBrowse(); person=null;">&#8592; Retour à la liste</button>'}
+                        ${(fromUrl && !fromDL) ? '' : '<button class="btn btn-ghost btn-sm btn-back" onclick="showBrowse(); person=null;">&#8592; Retour à la liste</button>'}
                         <h3>${esc(personLabel)}</h3>
                         ${labNames.length ? `<span class="person-labs">${labNames.map(l => esc(l)).join(' · ')}</span>` : ''}
                         <span class="person-id">ID : ${personId}</span>
@@ -2287,6 +2354,13 @@ async function loadPerson(personId) {
                 seenIds.add(v.value_resource_id);
                 return true;
             });
+
+            // Quota : compte les suggestions de l'EC encore attachées à sa fiche.
+            if (fromUrl) {
+                suggestedKwCount = conceptVals
+                    .filter(v => suggestedConceptIds.has(v.value_resource_id)).length;
+                updateSuggestQuotaDisplay();
+            }
 
             if (!conceptVals.length) { showEmpty(); setLoading(false); return; }
 
@@ -2573,6 +2647,15 @@ function renderKeywords() {
         });
     kw.append('div').attr('class', 'kw-prop-badge').text(d => d._sourceProp ? d._sourceProp.split(':').pop() : '');
 
+    // Retrait d'un mot-clef ajouté à la main (ni ScanR, ni noté par quelqu'un d'autre)
+    kw.filter(d => canRemoveKeyword(d))
+        .append('button')
+        .attr('class', 'kw-remove-btn')
+        .attr('title', 'Retirer ce mot-clef de la fiche')
+        .attr('aria-label', 'Retirer ce mot-clef de la fiche')
+        .html('&times;')
+        .on('click', removeKeyword);
+
     // Indicateur ScanR relatif
     kw.filter(d => d.scanrLabel !== null && d.scanrLabel !== undefined)
         .append('div')
@@ -2719,6 +2802,9 @@ function setKwButtonsBusy(kwId, busy) {
         const btn = document.getElementById(prefix + kwId);
         if (btn) btn.disabled = busy;
     });
+    // Le bouton de retrait n'a pas d'identifiant propre : il est atteint par la carte
+    const removeBtn = document.querySelector(`#kw-card-${kwId} .kw-remove-btn`);
+    if (removeBtn) removeBtn.disabled = busy;
 }
 
 // Confirmation d'enregistrement affichée à côté du mot-clef concerné.
@@ -2842,6 +2928,119 @@ function getCreatorExpertise(d) {
     return latestCreatorExpertise(d);
 }
 
+// Un mot-clef n'est retirable que s'il a été ajouté à la main sur cette fiche :
+// les mots-clefs issus de ScanR portent une annotation curation:rank et doivent
+// rester. On refuse aussi le retrait dès qu'un autre intervenant a noté le
+// mot-clef, pour ne pas effacer son travail sans qu'il le sache.
+function canRemoveKeyword(d) {
+    if (fromDL || window._dlReadOnly) return false;   // le DU ne fait que consulter
+    if (d['@annotation']) return false;               // issu de l'extraction ScanR
+    const otherNotes = (d.expertises || []).filter(e =>
+        e['o:id'] &&
+        e.creatorId !== 'scanr' &&
+        String(e.creatorId) !== String(cfg.creatorId)
+    );
+    return otherNotes.length === 0;
+}
+
+// Détache un mot-clef de la fiche : retire la référence sur l'item EC et
+// supprime les expertises associées. Le skos:Concept lui-même est conservé —
+// les concepts devenus orphelins sont traités séparément.
+let isRemovingKeyword = false;
+
+async function removeKeyword(e, d) {
+    if (e?.stopPropagation) e.stopPropagation();
+    if (!person) return;
+    if (!canRemoveKeyword(d)) return;
+
+    // Verrou global : chaque retrait relit la fiche entière avant de la réécrire.
+    // Deux retraits concurrents liraient la même version et le second annulerait
+    // le premier. Le verrou porte sur la fiche, pas sur la carte.
+    if (isRemovingKeyword) {
+        toast('Retrait en cours, patientez…', 'info');
+        return;
+    }
+
+    const label = d.display_title || `#${d.value_resource_id}`;
+    if (!window.confirm(
+        `Retirer « ${label} » de la liste ?\n\n` +
+        `Le mot-clef ne sera plus rattaché à cette fiche` +
+        (d.hasExpert ? `, et la note associée sera supprimée.` : `.`)
+    )) return;
+
+    // Verrou posé seulement une fois la confirmation acquise : s'il l'était avant,
+    // une annulation sortirait sans passer par le finally et le laisserait fermé
+    // pour toute la session.
+    isRemovingKeyword = true;
+    const kwId = d.value_resource_id;
+    // Fige la fiche visée : la grille n'étant plus masquée pendant l'opération,
+    // l'utilisateur peut revenir à la liste entre deux écritures, ce qui remet
+    // `person` à null et ferait échouer la suite sur une fiche pourtant traitée.
+    const personId = person['o:id'];
+    setKwButtonsBusy(kwId, true);
+    // Pas de setLoading(true) ici : il masque le bandeau, la grille et la barre
+    // d'action, et setLoading(false) ne les réaffiche pas — un retrait en échec
+    // laisserait donc une page vide. loadPerson pose son propre écran de
+    // chargement sur le chemin nominal. Retour visuel : curseur + bouton grisé,
+    // comme pour createExpertise / updateExpertise.
+    document.body.style.cursor = 'wait';
+
+    try {
+        // Relit l'item EC : évite d'écraser une modification survenue depuis le chargement
+        const rawPerson = await a.omk.getItem(personId);
+        if (!rawPerson?.['o:id']) throw new Error("impossible de relire la fiche");
+
+        // Retire la référence de toutes les propriétés configurées
+        let removed = 0;
+        for (const prop of cfg.personPropExp.split(',').map(x => x.trim()).filter(Boolean)) {
+            if (!Array.isArray(rawPerson[prop])) continue;
+            const before = rawPerson[prop].length;
+            rawPerson[prop] = rawPerson[prop]
+                .filter(v => String(v.value_resource_id) !== String(kwId));
+            removed += before - rawPerson[prop].length;
+        }
+        if (!removed) throw new Error("mot-clef introuvable sur la fiche — rechargez la page");
+
+        const updated = await a.omk.updateRessource(personId, null, 'items', rawPerson, 'PUT');
+        if (!updated?.['o:id']) throw new Error(apiErrorMessage(updated));
+
+        // Supprime les expertises associées : sans cela elles resteraient en base
+        // en pointant vers un mot-clef absent de la fiche, donc invisibles.
+        const orphans = (d.expertises || []).filter(x => x['o:id']);
+        const failed  = [];
+        for (const exp of orphans) {
+            // deleteItem ne contrôle pas le statut HTTP : un refus (403, 404…)
+            // revient sous forme de JSON { errors: … } sans lever d'exception.
+            // Sans ce test, une suppression refusée serait annoncée comme réussie.
+            try {
+                const del = await a.omk.deleteItem(exp);
+                if (del && del.errors) failed.push(exp['o:id']);
+            } catch (err) { failed.push(exp['o:id']); }
+        }
+
+        // Ne recharge que si l'on est toujours sur la même fiche : sinon on
+        // ramènerait l'utilisateur de force sur un EC qu'il vient de quitter.
+        // loadPerson réapplique déjà le tri par rank décroissant dans son finally.
+        if (person && String(person['o:id']) === String(personId)) {
+            await loadPerson(personId);
+        }
+
+        if (failed.length) {
+            toast(`« ${label} » retiré — ${failed.length} expertise(s) non supprimée(s)`, 'err',
+                  `IDs : ${failed.join(', ')} — signalez-les à votre chargée de valorisation.`);
+        } else {
+            toast(`« ${label} » retiré de la liste`, 'ok');
+        }
+    } catch (err) {
+        toast('Erreur lors du retrait', 'err',
+              (err.message || String(err)) + ' — ' + "Contactez votre chargée de valorisation si le problème persiste.");
+    } finally {
+        isRemovingKeyword = false;
+        document.body.style.cursor = '';
+        setKwButtonsBusy(kwId, false);
+    }
+}
+
 async function createExpertise(e, d) {
     const kwId = d.value_resource_id;
     setKwButtonsBusy(kwId, true);
@@ -2903,7 +3102,11 @@ async function deleteExpertise(e, d) {
         if (!exp?.['o:id']) {
             throw new Error("expertise introuvable — rechargez la fiche");
         }
-        await a.omk.deleteItem(exp);
+        // Même contrôle que pour le retrait d'un mot-clef : deleteItem ne vérifie
+        // pas le statut HTTP, un refus reviendrait sous forme de JSON d'erreur.
+        // Sans ce test, la note disparaissait de l'écran tout en restant en base.
+        const del = await a.omk.deleteItem(exp);
+        if (del && del.errors) throw new Error(apiErrorMessage(del));
         showNewExpertise(d, exp, true);
         setRankForKeyword(d);
         d3.select('#btnCreate' + d.value_resource_id).attr('class', 'btn btn-success');
@@ -3017,6 +3220,19 @@ function showEmpty() {
     document.getElementById('saveBar').classList.remove('hidden');
 }
 
+// setLoading(true) masque le bandeau, la grille et la barre d'action ;
+// setLoading(false) ne fait que retirer l'écran de chargement et ne les
+// réaffiche pas. Sur le chemin nominal c'est loadPerson qui reconstruit la vue,
+// mais une opération interrompue par une erreur laissait une page vide, à
+// recharger à la main. On rétablit ici l'affichage à partir des données déjà
+// en mémoire, sans relire l'API — l'erreur venant justement de là.
+function restoreAfterError() {
+    setLoading(false);
+    if (!person) return;
+    document.getElementById('personBanner').classList.remove('hidden');
+    renderKeywords();   // gère lui-même le cas « aucun mot-clef » via showEmpty()
+}
+
 function esc(s) {
     const d = document.createElement('div');
     d.textContent = s || '';
@@ -3053,6 +3269,9 @@ function toast(msg, type = 'info', detail = '') {
 
 // Expose showBrowse globalement (utilisé dans le onclick inline du personBanner).
 // Défini ici en synchrone — lockEcMode/lockDlMode l'écrasent ensuite en async si nécessaire.
+// Cette ligne DOIT s'exécuter avant les locks, sinon elle écraserait leur version.
+// C'est le cas parce que l'IIFE init() rend la main sur `await saveSettings()`
+// avant d'appeler lockEcMode/lockDlMode : ne pas supprimer cet await.
 window.showBrowse = () => { person = null; showBrowse(); };
 
 </script>
