@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.3.2] — 2026-09-30
+
+### Nouvelles fonctionnalités
+
+**Copie du message dans le presse-papiers (`index.html`, `main.css`)**
+Un bouton 📋 accompagne désormais chaque enveloppe, dans la liste des ECs comme
+dans l'encadré des directeur·rice·s d'unité. Il copie le message complet —
+destinataire, objet, corps — prêt à coller dans n'importe quel webmail.
+
+C'est la seule voie qui ne dépende d'aucune configuration de poste. L'ouverture
+d'un `mailto:` passe par le gestionnaire de protocole du système d'exploitation
+puis par la session du webmail : deux maillons hors de portée de l'application,
+et à l'origine des dysfonctionnements constatés sur le terrain (ouverture forcée
+d'un navigateur qui n'est pas celui en cours, erreur 502 de Zimbra lorsque la
+session n'y est pas ouverte). Le message reste accessible même quand cette chaîne
+échoue.
+
+Les deux formes — lien `mailto:` et texte copié — sont produites à partir d'une
+source unique. Modifier le texte d'un message le modifie partout.
+
+### Correctifs
+
+**L'envoi d'un email remplaçait l'application (`index.html`, `main.css`)**
+Les enveloppes étaient des `<button>` déclenchant l'ouverture d'un `mailto:` par
+un lien fabriqué à la volée, cliqué puis immédiatement retiré du DOM. Ce
+contournement ne garantissait pas l'ouverture dans un nouvel onglet : selon le
+navigateur et le gestionnaire de protocole, la fiche en cours était toujours
+remplacée par le webmail.
+
+Les enveloppes sont désormais de véritables liens. Le navigateur ouvre lui-même
+un nouvel onglet, et le menu contextuel du clic droit propose « ouvrir dans un
+nouvel onglet », « ouvrir dans une nouvelle fenêtre », comme pour n'importe quel
+lien — de même que le Ctrl+clic et le clic molette.
+
+L'adresse est posée sur la propriété `href` après le rendu plutôt qu'écrite dans
+le gabarit HTML : aucune question d'échappement ne se pose sur une URL de plus
+d'un kilo-octet dont une partie provient de la base. Le `rel` passe de
+`noopener noreferrer` à `noopener` seul — supprimer l'en-tête `Referer` était une
+variable inutile dans une chaîne d'authentification déjà instable.
+
+**Message nommant le mauvais laboratoire (`index.html`)**
+Le laboratoire mentionné dans les messages était celui sélectionné dans le menu,
+et non celui de la personne destinataire. Les deux coïncident en navigation par
+laboratoire, mais en recherche globale le menu conserve le dernier laboratoire
+choisi : un enseignant-chercheur pouvait donc recevoir un message mentionnant le
+laboratoire de quelqu'un d'autre, ou la formule générique « votre laboratoire ».
+
+Le laboratoire est désormais lu sur la fiche de la personne. La sélection
+courante reste privilégiée lorsqu'elle figure parmi ses laboratoires, afin de ne
+rien changer au cas habituel. L'encadré des directeur·rice·s d'unité transmet de
+la même façon le laboratoire qu'il affiche, plutôt que de dépendre de l'état du
+menu.
+
+**Échec de copie silencieux (`index.html`)**
+Les trois boutons de copie — lien EC, tous les liens, message — appelaient
+`navigator.clipboard` sans vérifier sa présence. Hors contexte sécurisé, cet
+objet n'existe pas : le clic levait une erreur et il ne se passait rien à
+l'écran, sans la moindre indication. Les trois passent désormais par un point
+unique qui signale le cas et invite à sélectionner le texte à la main.
+
+**La feuille de style n'était pas rechargée après mise à jour (`index.html`)**
+Le `.htaccess` désactive le cache pour `index.html` seulement. Les utilisateurs
+recevaient donc le nouveau HTML avec l'ancien `main.css` — sans conséquence
+jusqu'ici, la feuille n'ayant pas changé depuis, mais cette version l'aurait fait
+apparaître : liens d'envoi soulignés et mal calés jusqu'à un rechargement forcé.
+La feuille est désormais appelée avec un paramètre de version
+(`main.css?v=0.3.2`), à incrémenter à chaque release où elle change.
+
+**Note technique** — `disabled` n'existe pas sur une balise `<a>` : l'état
+inactif d'une enveloppe sans adresse repose sur l'absence de `href` et sur une
+classe CSS, sans `pointer-events: none`, qui aurait laissé le clic atteindre la
+ligne et ouvrir la fiche de l'EC.
+
+### Limite connue
+
+Deux comportements signalés ne relèvent pas de l'application et ne peuvent pas y
+être corrigés : le système d'exploitation confie les liens `mailto:` à son
+application de messagerie par défaut, quel que soit le navigateur d'où part le
+clic ; et Zimbra renvoie une erreur 502 au lieu de la page de connexion lorsque
+la session n'est pas ouverte. Le bouton de copie permet de contourner les deux.
+
 ## [0.3.1] — 2026-09-23
 
 ### Nouvelles fonctionnalités

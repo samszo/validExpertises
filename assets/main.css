@@ -206,7 +206,35 @@
             display: inline; font-size: .82rem; font-weight: 400;
             text-transform: none; letter-spacing: 0; color: var(--text); margin: 0;
         }
-        .btn-send-mail:disabled { opacity: .35; cursor: not-allowed; }
+        .btn-send-mail:disabled,
+        .btn-copy-mail:disabled { opacity: .35; cursor: not-allowed; }
+
+        /* Les boutons d'envoi sont de vraies balises <a> : sans ces trois
+           déclarations elles s'afficheraient soulignées et en display:inline,
+           ce qui casse le rembourrage. Portée aux ancres uniquement — aucun
+           <button> existant n'est touché. */
+        a.btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            font-family: inherit;
+        }
+        /* `disabled` n'existe pas sur une ancre : l'état inactif passe par une
+           classe. Surtout pas de pointer-events:none — le clic remonterait à la
+           ligne parente et ouvrirait la fiche de l'EC. */
+        .btn.is-disabled { opacity: .5; cursor: not-allowed; }
+        .btn-send-mail.is-disabled { opacity: .35; }
+        .btn.is-disabled:hover  { filter: none; }
+        .btn.is-disabled:active { transform: none; }
+
+        .dl-copy-btn {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            font-size: .75rem !important;
+            padding: .2rem .5rem !important;
+        }
         .modal-actions {
             display: flex; gap: .7rem; justify-content: flex-end; margin-top: 1.4rem;
         }
@@ -1017,6 +1045,10 @@
             opacity: .85;
         }
         .dl-send-btn:hover { opacity: 1; }
+        /* Défini après .dl-send-btn:hover, sinon un lien inactif redeviendrait
+           opaque au survol (même spécificité, c'est l'ordre qui tranche). */
+        .dl-send-btn.is-disabled,
+        .dl-send-btn.is-disabled:hover { opacity: .5; cursor: not-allowed; }
         .dl-zone-empty { font-size: .82rem; color: var(--muted); font-style: italic; }
         /* ── SUGGESTION MOT-CLEF ── */
         .kw-suggest-quota {

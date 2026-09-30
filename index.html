@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Validation des Expertises</title>
     <script src="assets/js/d3.min.js"></script>
-    <link rel="stylesheet" href="assets/main.css">
+    <!-- Le paramètre ?v= force le rechargement de la feuille de style à chaque
+         version. Sans lui, le navigateur sert l'ancien CSS avec le nouveau HTML
+         (le .htaccess ne désactive le cache que pour index.html). À incrémenter
+         à chaque release où main.css change. -->
+    <link rel="stylesheet" href="assets/main.css?v=0.3.2">
 
 </head>
 <body>
@@ -25,7 +29,7 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.3.1</div>
+            <div class="app-dropdown-version">v0.3.2</div>
         </div>
     </div>
     <h4>Expert : <span id="creator"></span></h4>
@@ -1794,11 +1798,34 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
         // Récupère l'email depuis foaf:mbox
         const mailVal = (item['foaf:mbox'] || [])[0];
         const ecMail  = mailVal?.['@id']?.replace('mailto:', '') || mailVal?.['@value'] || '';
+
+        // Laboratoire à nommer dans le message : celui de l'EC, et non celui
+        // sélectionné dans le menu. Les deux coïncident en navigation par labo,
+        // mais en recherche globale le menu porte le dernier labo choisi — un EC
+        // recevait alors un message mentionnant le laboratoire de quelqu'un d'autre.
+        // On privilégie la sélection courante quand elle fait partie des labos de
+        // l'EC, pour ne rien changer au cas habituel.
+        const ecLabIds = (item['dcterms:isPartOf'] || [])
+            .map(v => parseInt(v.value_resource_id))
+            .filter(Boolean);
+        const ecLabId  = ecLabIds.includes(browseLabId) ? browseLabId : (ecLabIds[0] ?? '');
+        // Vrai lien, et non un bouton : le navigateur ouvre lui-même un nouvel
+        // onglet et propose son menu contextuel (« ouvrir dans un nouvel onglet /
+        // une nouvelle fenêtre »), le Ctrl+clic et le clic molette. Le href est
+        // posé après le rendu, par la propriété DOM — pas dans ce gabarit, pour
+        // n'avoir aucune question d'échappement sur une URL de plus d'un kilo-octet.
         const mailBtn = !fromUrl
-            ? `<button class="btn btn-sm btn-ghost btn-send-mail"
+            ? `<a class="btn btn-sm btn-ghost btn-send-mail${ecMail ? '' : ' is-disabled'}"
+                  target="_blank" rel="noopener"
                   data-ecid="${id}" data-ecname="${esc(label)}" data-ecmail="${esc(ecMail)}"
-                  title="${ecMail ? `Envoyer un email à ${label}` : 'Email non renseigné'}"
-                  ${!ecMail ? 'disabled' : ''}>✉️</button>`
+                  data-eclab="${ecLabId}"
+                  title="${ecMail ? `Envoyer un email à ${esc(label)}` : 'Email non renseigné'}"
+                  >✉️</a>
+               <button class="btn btn-sm btn-ghost btn-copy-mail"
+                  data-ecid="${id}" data-ecname="${esc(label)}" data-ecmail="${esc(ecMail)}"
+                  data-eclab="${ecLabId}"
+                  title="${ecMail ? 'Copier le message à envoyer' : 'Email non renseigné'}"
+                  ${!ecMail ? 'disabled' : ''}>📋</button>`
             : '';
         return `<div class="browse-item${isDL ? ' is-dl' : ''}" data-id="${id}" data-evaluated="${evaluated}">
             <div class="browse-item-name">${esc(label)}${dlBadge}</div>
@@ -1862,15 +1889,26 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
     list.querySelectorAll('.btn-copy-link').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
-            navigator.clipboard.writeText(btn.dataset.link)
-                .then(() => toast('Lien copié !', 'ok'))
-                .catch(() => toast('Impossible de copier', 'err'));
+            copyToClipboard(btn.dataset.link, 'Lien copié !');
         });
     });
-    list.querySelectorAll('.btn-send-mail').forEach(btn => {
+    // Enveloppe : lien réel. Le href n'est posé que s'il y a une adresse — une
+    // ancre sans href n'est pas un lien, ce qui remplace l'attribut `disabled`
+    // que le HTML ignore sur une balise <a>. Le stopPropagation reste sur tous
+    // les cas, y compris désactivé : sans lui, le clic remonte à la ligne et
+    // ouvrirait la fiche de l'EC.
+    list.querySelectorAll('.btn-send-mail').forEach(el => {
+        el.addEventListener('click', e => e.stopPropagation());
+        const url = partsToMailto(ecMailParts(
+            parseInt(el.dataset.ecid), el.dataset.ecname, el.dataset.ecmail, el.dataset.eclab));
+        if (url) el.href = url;
+    });
+    list.querySelectorAll('.btn-copy-mail').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
-            sendEcEmail(parseInt(btn.dataset.ecid), btn.dataset.ecname, btn.dataset.ecmail);
+            copyMailParts(ecMailParts(
+                parseInt(btn.dataset.ecid), btn.dataset.ecname, btn.dataset.ecmail,
+                btn.dataset.eclab), 'Message');
         });
     });
     list.querySelectorAll('.browse-item').forEach(el => {
@@ -1901,9 +1939,8 @@ function renderBrowseList(items, hasMore, axes = [], labId = browseLabId) {
     }
     copyAllBtn.onclick = () => {
         const text = items.map(item => `${getLabel(item)} : ${buildEcLink(item['o:id'])}`).join('\n');
-        navigator.clipboard.writeText(text)
-            .then(() => toast(`${items.length} lien${items.length > 1 ? 's' : ''} copié${items.length > 1 ? 's' : ''} !`, 'ok'))
-            .catch(() => toast('Impossible de copier', 'err'));
+        copyToClipboard(text,
+            `${items.length} lien${items.length > 1 ? 's' : ''} copié${items.length > 1 ? 's' : ''} !`);
     };
 
     // renderDlZone est appelée séparément en async après le rendu statique
@@ -1934,19 +1971,33 @@ async function renderDlZone(lab) {
             return `<div class="dl-zone-row">
                 <span class="dl-zone-name">${esc(name)}</span>
                 <div class="dl-zone-actions">
-                    <button class="btn btn-sm btn-primary dl-send-btn"
+                    <a class="btn btn-sm btn-primary dl-send-btn${mail ? '' : ' is-disabled'}"
+                        target="_blank" rel="noopener"
                         data-mail="${esc(mail)}" data-name="${esc(name)}"
-                        data-dlid="${dl['o:id']}"
+                        data-dlid="${dl['o:id']}" data-lab="${lab['o:id']}"
                         title="Envoyer le lien dispatch + lien EC au DU">
                         ✉️ Envoyer les liens
-                    </button>
+                    </a>
+                    <button class="btn btn-sm dl-copy-btn"
+                        data-mail="${esc(mail)}" data-name="${esc(name)}"
+                        data-dlid="${dl['o:id']}" data-lab="${lab['o:id']}"
+                        title="Copier le message à envoyer"
+                        ${!mail ? 'disabled' : ''}>📋</button>
                 </div>
             </div>`;
         }).join('')}`;
 
-    zone.querySelectorAll('.dl-send-btn').forEach(btn => {
+    // Ici la ligne parente n'écoute rien : pas de stopPropagation nécessaire.
+    zone.querySelectorAll('.dl-send-btn').forEach(el => {
+        const url = partsToMailto(dlMailParts(
+            el.dataset.mail, el.dataset.name, parseInt(el.dataset.dlid), el.dataset.lab));
+        if (url) el.href = url;
+    });
+    zone.querySelectorAll('.dl-copy-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            sendDLEmail(btn.dataset.mail, btn.dataset.name, parseInt(btn.dataset.dlid));
+            copyMailParts(dlMailParts(
+                btn.dataset.mail, btn.dataset.name, parseInt(btn.dataset.dlid),
+                btn.dataset.lab), 'Message');
         });
     });
 
@@ -2073,16 +2124,19 @@ function buildEcLink(ecId) {
 // Génère un mailto vers le(s) DL avec :
 // - son lien DL (pour dispatcher les liens EC)
 // - son propre lien EC (pour s'auto-évaluer)
-function sendDLEmail(dlMail = '', dlName = '', dlId = null) {
-    const lab      = labs.find(l => l['o:id'] === browseLabId);
+// labId : laboratoire concerné. Le défaut reproduit l'ancien comportement ;
+// l'encadré passe celui qu'il affiche, pour ne pas dépendre d'un état global.
+function dlMailParts(dlMail = '', dlName = '', dlId = null, labId = browseLabId) {
+    const labIdNum = parseInt(labId);
+    const lab      = labs.find(l => l['o:id'] === labIdNum);
     const labName  = lab ? getLabel(lab) : 'votre laboratoire';
-    const dlLink   = dlId ? buildDlLink(browseLabId, dlId) : null;
+    const dlLink   = dlId ? buildDlLink(labIdNum, dlId) : null;
     const ecLink   = dlId ? buildEcLink(dlId) : null;
     const senderName = a?.user?.['o:name'] || a?.user?.['o:email'] || 'Le Service de Valorisation de la Recherche';
     const deadlineLine = cfg.deadline ? `\nDate limite de validation : ${cfg.deadline}\n` : '';
 
     // ── Corps de l'email — modifiable ici si besoin de personnaliser le message ──
-    const body = encodeURIComponent(
+    const body = (
         `Cher.e Directeur.rice de laboratoire,\n\n` +
         `Dans le cadre de la valorisation de la recherche et le développement des partenariats de votre laboratoire, ` +
         `nous avons collecté un certain nombre de données représentant des domaines d'expertise des enseignants-chercheurs ` +
@@ -2100,37 +2154,65 @@ function sendDLEmail(dlMail = '', dlName = '', dlId = null) {
         deadlineLine +
         `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
     );
-    const subject = encodeURIComponent(`Validation des domaines d'expertise — ${labName}`);
-    openMailto(`mailto:${dlMail}?subject=${subject}&body=${body}`);
+    const subject = `Validation des domaines d'expertise — ${labName}`;
+    return { to: dlMail, subject, body };
 }
 
-// Ouvre un lien mailto sans quitter l'application.
-// window.location.href navigue réellement lorsqu'un webmail (Zimbra, Gmail…) est
-// enregistré comme gestionnaire du protocole mailto : la fiche en cours était
-// alors remplacée par le webmail. Un lien cliqué avec target="_blank" laisse la
-// page intacte. window.open est évité : il est bloqué comme popup par défaut.
-function openMailto(url) {
-    const a = document.createElement('a');
-    a.href   = url;
-    a.target = '_blank';
-    a.rel    = 'noopener noreferrer';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+// Les deux fonctions ci-dessus rendent le message en clair ; l'encodage n'a lieu
+// qu'ici. Un seul texte source alimente donc le lien mailto et la copie dans le
+// presse-papiers : les deux ne peuvent pas diverger.
+function partsToMailto(p) {
+    if (!p || !p.to) return '';
+    return `mailto:${p.to}?subject=${encodeURIComponent(p.subject)}`
+         + `&body=${encodeURIComponent(p.body)}`;
 }
 
-// Génère un mailto vers un EC (depuis la vue dispatch du DL)
-function sendEcEmail(ecId, ecName, ecMail) {
-    if (!ecMail) { toast("Adresse email non renseignée pour cet EC", 'err'); return; }
-    const lab      = labs.find(l => l['o:id'] === browseLabId);
+function partsToText(p) {
+    if (!p) return '';
+    return `À : ${p.to}\nObjet : ${p.subject}\n\n${p.body}`;
+}
+
+// Point de passage unique pour toutes les copies de l'application.
+// navigator.clipboard n'existe pas hors contexte sécurisé (page servie en http,
+// navigateur ancien) : sans ce test, le clic levait une TypeError et il ne se
+// passait strictement rien à l'écran.
+function copyToClipboard(text, okMsg) {
+    if (!navigator.clipboard?.writeText) {
+        toast('Copie impossible', 'err',
+              "Le presse-papiers n'est pas accessible depuis ce navigateur — "
+            + "sélectionnez le texte à la main.");
+        return;
+    }
+    navigator.clipboard.writeText(text)
+        .then(()  => toast(okMsg, 'ok'))
+        .catch(() => toast('Impossible de copier', 'err',
+                           "Votre navigateur a refusé l'accès au presse-papiers."));
+}
+
+// Copie le message en clair, pour le coller dans n'importe quel webmail.
+// Indispensable : l'ouverture d'un mailto dépend du gestionnaire de protocole
+// du poste et de la session du webmail, deux choses hors de portée de l'app.
+function copyMailParts(p, quoi = 'Message') {
+    const txt = partsToText(p);
+    if (!txt) { toast('Message indisponible', 'err'); return; }
+    copyToClipboard(txt, `${quoi} copié — collez-le dans votre webmail`);
+}
+
+// Génère le message vers un EC (depuis la vue dispatch du DL).
+// labId : laboratoire à nommer dans le message. Le défaut reproduit l'ancien
+// comportement (la sélection courante) ; l'appelant passe celui de l'EC.
+// `labs` contient tous les laboratoires, sans filtre de périmètre : le nom est
+// donc retrouvé même pour un EC hors du périmètre de l'opérateur.
+function ecMailParts(ecId, ecName, ecMail, labId = browseLabId) {
+    if (!ecMail) return null;
+    const lab      = labs.find(l => l['o:id'] === parseInt(labId));
     const labName  = lab ? getLabel(lab) : 'votre laboratoire';
     const ecLink   = buildEcLink(ecId);
     const senderName = a?.user?.['o:name'] || a?.user?.['o:email'] || 'Le Service de Valorisation de la Recherche';
     const deadlineLine = cfg.deadline ? `\nDate limite de validation : ${cfg.deadline}\n` : '';
 
     // ── Corps de l'email EC — modifiable ici si besoin ──
-    const body = encodeURIComponent(
+    const body = (
         `Bonjour${ecName ? ' ' + ecName : ''},\n\n` +
         `Dans le cadre de la valorisation des activités de recherche du laboratoire ${labName}, ` +
         `nous vous contactons au sujet de la validation de vos domaines d'expertise.\n\n` +
@@ -2143,8 +2225,8 @@ function sendEcEmail(ecId, ecName, ecMail) {
         deadlineLine +
         `\nPour toute question, n'hésitez pas à nous contacter.\n\nBien cordialement,\n${senderName}`
     );
-    const subject = encodeURIComponent(`Validation de vos domaines d'expertise — ${labName}`);
-    openMailto(`mailto:${ecMail}?subject=${subject}&body=${body}`);
+    const subject = `Validation de vos domaines d'expertise — ${labName}`;
+    return { to: ecMail, subject, body };
 }
 
 
