@@ -14,12 +14,3 @@ export const pa = {
         deadline:      '',     // date limite de validation (format JJ/MM/AA, vide = non affiché)
         "navbar":      null
 }
-/*
-compte admin omeka : (https://10.10.167.19)
-mail: samuel.szoniecky@univ-paris8.fr
-pwd: ShNqDcJM_deI"m-?kq@Tt?mi
- 
-ssh: samuel@10.10.167.19
-pwd: M(LbI>|`Vv!BdnI:3<e?qc|6
-acces /var/www/html/omeka/
-*/
