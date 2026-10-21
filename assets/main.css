@@ -1,18 +1,60 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+        /* ─────────────────────────────────────────────────────────────────
+           Palette — charte graphique de l'Université Paris 8, accordée à
+           ValoVizu.
+
+           Les noms de jetons sont conservés : seules les valeurs changent, et
+           les 175 appels à var() de cette feuille restent intacts. Le nom
+           employé par ValoVizu figure en regard, pour que la correspondance
+           entre les deux outils reste lisible des deux côtés.
+
+           Répartition des teintes du logotype primaire : Raspberry porte
+           l'interaction — il appartient au rouge institutionnel tout en étant
+           moins agressif que Poppy sur de grandes surfaces ; Poppy reste
+           réservé à l'alerte, où le rouge vif est attendu ; Maroon habille le
+           bandeau, où sa profondeur convient mieux qu'un bleu neutre.
+
+           Le vert et l'ambre ne viennent pas de la charte, qui n'en contient
+           aucun. Ils portent l'opposition « fait » / « à faire », information
+           la plus consultée de l'interface, qu'aucune des cinq teintes
+           institutionnelles ne peut rendre. Ils sont repris de cleanKeywords,
+           où ils étaient déjà écrits en dur. C'est le même arbitrage que pour
+           la palette des figures de ValoVizu : la charte porte l'identité, la
+           lecture des données impose ses propres contraintes.
+
+           Contrastes mesurés sur blanc, seuil AA à 4.5 — Raspberry 6.94,
+           Poppy 4.83, Maroon 11.15, vert 6.49, ambre 7.09. Les quatre valeurs
+           remplacées échouaient toutes : accent 3.15, danger 3.82,
+           success 2.10, warn 2.19.
+           ───────────────────────────────────────────────────────────────── */
         :root {
-            --primary: #2c3e50;
-            --accent:  #3498db;
-            --danger:  #e74c3c;
-            --success: #2ecc71;
-            --warn:    #f39c12;
-            --neutral: #95a5a6;
-            --bg:      #f5f6fa;
-            --card-bg: #ffffff;
-            --text:    #2c3e50;
-            --muted:   #7f8c8d;
-            --border:  #dfe6e9;
-            --shadow:  0 2px 8px rgba(0,0,0,.1);
+            --primary: #75151F;   /* Maroon     → --barre-fond */
+            --accent:  #AE164E;   /* Raspberry  → --signal     */
+            --danger:  #E30F1B;   /* Poppy      → --alerte     */
+            --success: #1B6B45;   /* hors charte : état « fait »    */
+            --warn:    #92400E;   /* hors charte : état « à faire » */
+            --neutral: #877C83;   /*            → --encre-3    */
+            --bg:      #F7F4F5;   /*            → --papier     */
+            --card-bg: #FFFFFF;   /*            → --carte      */
+            --text:    #1A1418;   /*            → --encre      */
+            --muted:   #5B5058;   /*            → --encre-2    */
+            --border:  #E2D8DC;   /*            → --filet      */
+            --shadow:  0 1px 2px rgba(20,35,43,.10);  /* → --ombre-carte */
+
+            /* Jetons de ValoVizu que cette application n'emploie pas encore.
+               Posés dès maintenant parce qu'ils ne changent rien à l'affichage
+               et qu'ils préparent le terrain : le jour où un thème sombre sera
+               voulu, ce sera un bloc à ajouter plutôt qu'un chantier sur les
+               couleurs écrites en dur. */
+            --signal-2:     #FAE7ED;
+            --alerte-2:     #FDE9EA;
+            --filet-doux:   #EFE8EB;
+            --barre-texte:  #FFFFFF;
+            --barre-doux:   rgba(255,255,255,.62);
+            --barre-filet:  rgba(255,255,255,.35);
+            --barre-survol: #8F2029;
+            --ombre-modale: 0 12px 40px rgba(22,35,43,.25);
         }
 
         body {
@@ -23,30 +65,77 @@
         }
 
         /* ---- HEADER ---- */
+        /* ──────────────────────────────────────────────────────────────────
+           Bandeau — aligné sur celui de ValoVizu et de cleanKeywords.
+
+           Celui de ValoVizu est clair, pas coloré : `--barre-fond` y habille
+           la barre de légende, en dessous. La barre sombre était ce qui
+           empêchait les trois outils de se lire comme une même suite.
+
+           Deux choses ne sont volontairement pas alignées sur ValoVizu : le
+           bandeau reste collant, utile quand un EC fait défiler une longue
+           liste de mots-clefs, et il garde une ombre — un filet seul ne
+           détache pas assez un en-tête sous lequel le contenu défile. Le
+           filigrane « & » n'est pas repris non plus : il demande
+           `overflow: hidden`, ce qui écrêterait le panneau du menu.
+           ────────────────────────────────────────────────────────────────── */
         header {
-            background: var(--primary);
-            color: #fff;
-            padding: .9rem 1.4rem;
+            background: var(--card-bg);
+            color: var(--text);
+            position: relative;
+            padding: 1rem max(1.4rem, calc((100% - 960px) / 2));
+            /* Le bouton des outils étant sorti du flux, le rembourrage gauche
+               lui réserve sa place : jamais moins de 86 px, soit 24 de marge,
+               34 de bouton et 28 d'écart — les mêmes valeurs que dans les deux
+               autres applications. */
+            padding-left: max(86px, calc((100% - 960px) / 2));
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 1rem;
             position: sticky;
             top: 0;
             z-index: 100;
-            box-shadow: 0 2px 6px rgba(0,0,0,.25);
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
         }
-        header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .02em; }
+
+        .header-title { min-width: 0; }
+        .header-right { display: flex; align-items: center; gap: .8rem; }
+        header h4     { color: var(--muted); font-weight: 400; font-size: .85rem; white-space: nowrap; }
+        header h4 #creator { color: var(--text); font-weight: 600; }
+
+        /* Signature de l'établissement, reprise telle quelle de ValoVizu. */
+        .surtitre {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+            color: var(--accent); margin: 0 0 3px; font-weight: 500;
+        }
+
+        /* Ancré au bord gauche du bandeau, et posé à 18 px du haut plutôt que
+           centré : les bandeaux des trois outils n'ont pas la même hauteur —
+           celui de ValoVizu grandit quand ses onglets reviennent à la ligne —
+           et un bouton centré se décalerait d'autant. La zone garde toute la
+           hauteur du bandeau pour que le panneau du menu, calé sur `100%`,
+           s'ouvre bien en dessous et non à l'intérieur. */
+        .toolbox { position: absolute; left: 24px; top: 0; bottom: 0; display: flex; align-items: flex-start; padding-top: 18px; }
+        .toolbox-btn {
+            display: flex; flex-direction: column; justify-content: center; gap: 3.5px;
+            width: 34px; height: 34px; padding: 0 8px;
+            border: 1px solid var(--border); border-radius: 6px;
+            background: var(--card-bg); cursor: pointer;
+            transition: border-color .15s;
+        }
+        .toolbox-btn span { display: block; height: 1.5px; background: var(--neutral); border-radius: 2px; transition: background .15s; }
+        .toolbox-btn:hover      { border-color: var(--accent); }
+        .toolbox-btn:hover span { background: var(--accent); }
+        .toolbox-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+        header h1 { font-size: 25px; font-weight: 600; line-height: 1.15; letter-spacing: -.01em; }
 
         /* ---- APP SWITCHER ---- */
-        .app-switcher {
-            position: relative; display: flex; align-items: center; gap: .5rem;
-            cursor: pointer; user-select: none;
-            padding: .2rem .4rem; border-radius: 6px;
-            transition: background .15s;
-        }
-        .app-switcher:hover { background: rgba(255,255,255,.12); }
-        .app-switcher-icon { display: flex; flex-direction: column; gap: 3.5px; width: 16px; flex-shrink: 0; }
-        .app-switcher-icon span { display: block; height: 1.5px; background: rgba(255,255,255,.8); border-radius: 2px; }
+        /* Les règles `.app-switcher*` ont disparu avec la structure qu'elles
+           habillaient : l'icône n'est plus dans le titre, c'est `.toolbox` qui
+           porte désormais le bouton. */
         .app-dropdown {
             display: none; position: absolute; top: calc(100% + 8px); left: 0;
             background: #fff; border-radius: 8px;
@@ -66,9 +155,13 @@
             text-decoration: none; cursor: pointer; transition: background .12s;
         }
         .app-dropdown-item:hover { background: #f3f4f6; }
-        .app-dropdown-item--active { background: #eef2f7; color: #2c3e50; font-weight: 500; pointer-events: none; }
+        /* L'entrée courante portait l'ancien marine écrit en dur — un reste de
+           palette qui aurait tranché sous un bandeau Maroon, et sur le menu
+           précisément, c'est-à-dire là où les trois outils doivent se
+           ressembler. Rattachée aux jetons. */
+        .app-dropdown-item--active { background: var(--filet-doux); color: var(--text); font-weight: 500; pointer-events: none; }
         .app-dropdown-dot { width: 7px; height: 7px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
-        .app-dropdown-item--active .app-dropdown-dot { background: #2c3e50; }
+        .app-dropdown-item--active .app-dropdown-dot { background: var(--accent); }
         .app-dropdown-version {
             font-size: .7rem; color: #bbb;
             padding: .3rem .85rem .5rem;
@@ -93,6 +186,12 @@
         .btn-danger { background: var(--danger); color: #ffffff; }
         .btn-warn { background: var(--warn); color: #ffffff; }
         .btn-ghost   { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4); }
+        /* `.btn-ghost` reste blanc : il habille aussi « Retour à la liste »,
+           posé sur le bandeau EC, qui demeure en Maroon. Seul celui du bandeau,
+           devenu clair, est redéfini — une bascule globale aurait rendu le
+           bouton de retour illisible sur son fond sombre. */
+        header .btn-ghost        { color: var(--accent); border-color: var(--border); }
+        header .btn-ghost:hover  { background: var(--signal-2); }
         .btn-sm      { padding: .3rem .65rem; font-size: .78rem; }
 
         /* ---- MODAL ---- */
@@ -339,7 +438,11 @@
 
         /* ---- PERSON BANNER ---- */
         .person-banner {
-            background: linear-gradient(135deg, var(--primary) 60%, #3d5a7a);
+            /* Le second ton était un bleu acier écrit en dur, accordé à
+               l'ancien bandeau marine. Avec Maroon, il donnait un dégradé
+               rouge vers bleu. Remplacé par le ton de survol de la charte :
+               le dégradé reste dans la famille du bandeau. */
+            background: linear-gradient(135deg, var(--primary) 60%, var(--barre-survol));
             color: #fff;
             border-radius: 10px;
             padding: 1rem 1.3rem;
@@ -357,7 +460,11 @@
         /* Lien Wikidata sur les cartes mots-clefs */
         .kw-wd-link {
             display: inline-block; margin-left: .5rem;
-            font-size: .7rem; color: #185FA5;
+            /* Dernier bleu de l'ancienne palette, et il figurait sur toutes
+               les cartes portant un QID. Passé au jeton d'interaction : la
+               charte réserve le soulignement aux liens, que ce lien obtient
+               déjà au survol, et le chevron ↗ signale sa nature. */
+            font-size: .7rem; color: var(--accent);
             text-decoration: none; opacity: .75;
         }
         .kw-wd-link:hover { opacity: 1; text-decoration: underline; }
@@ -772,9 +879,21 @@
         .hidden { display: none !important; }
 
         /* ---- RESPONSIVE ---- */
+        /* Le titre agrandi et la signature ajoutée mettent le bandeau à
+           l'étroit avant 560 px. Mêmes seuils que dans cleanKeywords : retour
+           à la ligne autorisé sous 760 px, signature effacée sous 520 px —
+           c'est l'élément le plus sacrifiable d'un en-tête serré. */
+        @media (max-width: 760px) {
+            header        { flex-wrap: wrap; padding: .75rem 1rem; padding-left: 86px; row-gap: .5rem; }
+            header h1     { font-size: 1.15rem; }
+            .surtitre     { font-size: 10px; letter-spacing: .1em; }
+            .header-right { flex-wrap: wrap; }
+        }
+        @media (max-width: 520px) {
+            .surtitre { display: none; }
+        }
         @media (max-width: 560px) {
             .kw-grid { grid-template-columns: 1fr; }
-            header h1 { font-size: .95rem; }
             .search-row { flex-direction: column; }
             .search-row input { width: 100%; }
         }

@@ -1,5 +1,117 @@
 # Changelog
 
+## [0.3.5] — 2026-10-20
+
+### Modifié
+
+**Bandeau aligné sur ceux de ValoVizu et de cleanKeywords (`index.html`, `main.css`)**
+Le bandeau passe du Maroon au blanc, avec un filet clair en bas. Celui de
+ValoVizu est clair, pas coloré : `--barre-fond` y habille la barre de légende,
+en dessous. La barre sombre était ce qui empêchait les trois outils de se lire
+comme une même suite.
+
+La signature de l'établissement surmonte désormais le titre, dont la taille
+passe de 1,1 rem à 25 px — la valeur des deux autres outils. Le contenu du
+bandeau est centré sur 960 px pour s'aligner sur le `.container` en dessous,
+obtenu par le rembourrage plutôt que par un élément d'habillage. Le bloc de
+droite regroupe « Expert : … » et le bouton Paramètres, si bien que les deux
+en-têtes ont maintenant la même structure à trois blocs.
+
+**Le bouton des outils est détaché du titre et ancré au bord gauche**, à 24 px
+du bord et 18 px du haut. Mesuré : il tombe au même pixel dans les trois
+applications, de 390 à 1920 px de large. Chacune centrant son en-tête sur la
+largeur de son propre contenu — 960 px ici, 1440 chez ValoVizu — un bouton
+solidaire du bloc centré se déplaçait de près de deux cents pixels d'un outil à
+l'autre. L'ancrage se fait par le haut et non par le centre, les bandeaux
+n'ayant pas la même hauteur.
+
+**Conséquence à connaître : le titre n'ouvre plus le menu.** Seul le bouton le
+fait, comme chez ValoVizu. Le script est inchangé, l'identifiant `appSwitcher`
+ayant suivi le bouton.
+
+**Note technique** — deux choses ne sont volontairement pas alignées sur
+ValoVizu. Le bandeau reste collant, utile quand un EC fait défiler une longue
+liste de mots-clefs, et il garde une ombre, un filet seul ne détachant pas assez
+un en-tête sous lequel le contenu défile. Le filigrane « & » n'est pas repris :
+il demande `overflow: hidden`, ce qui écrêterait le panneau du menu.
+
+### Corrigé
+
+**Débordement du bandeau sur écran étroit (`main.css`)**
+Le titre agrandi et la signature ajoutée mettaient le bandeau à l'étroit. Mêmes
+seuils que dans cleanKeywords : retour à la ligne autorisé sous 760 px,
+signature effacée sous 520 px. Plus aucun débordement de 1920 à 390 px.
+
+**Note technique** — `.btn-ghost` reste blanc globalement : il habille aussi
+« Retour à la liste », posé sur le bandeau EC qui demeure en Maroon. Seul celui
+du bandeau est redéfini. Une bascule globale aurait rendu le bouton de retour
+illisible sur son fond sombre.
+
+## [0.3.4] — 2026-10-20
+
+### Modifié
+
+**Palette alignée sur la charte graphique de l'Université Paris 8 (`main.css`)**
+Les douze jetons de couleur prennent les valeurs de la charte, accordées à
+celles de ValoVizu. Les noms de jetons sont conservés : les 175 appels à `var()`
+de la feuille restent intacts, et aucune règle de mise en page n'est touchée.
+
+Raspberry `#AE164E` porte l'interaction, Poppy `#E30F1B` l'alerte, Maroon
+`#75151F` le bandeau. Le vert `#1B6B45` et l'ambre `#92400E` ne viennent pas de
+la charte, qui n'en contient aucun : ils portent l'opposition « fait » / « à
+faire » et sont repris de cleanKeywords, où ils étaient déjà écrits en dur.
+
+**Correction d'accessibilité, non recherchée au départ.** Quatre des cinq
+couleurs portant du texte blanc étaient sous le seuil AA : `--accent` à 3.15,
+`--danger` à 3.82, `--success` à 2.10, `--warn` à 2.19. Les nouvelles valeurs
+sont à 6.94, 4.83, 6.49 et 7.09. Le texte secondaire, jeton le plus employé de
+la feuille avec 41 usages, passe de 3.22 à 7.03.
+
+Huit jetons de ValoVizu encore inemployés sont posés d'avance — ils ne changent
+rien à l'affichage et feront d'un éventuel thème sombre un bloc à ajouter plutôt
+qu'un chantier.
+
+### Corrigé
+
+**Trois couleurs de l'ancienne palette survivaient hors des jetons (`main.css`)**
+Elles auraient produit un reskin manifestement inachevé :
+
+- le bandeau d'un·e enseignant·e-chercheur·se mêlait son jeton à un bleu acier
+  écrit en dur, ce qui donnait un dégradé rouge vers bleu ;
+- l'entrée du menu correspondant à l'application courante portait l'ancien
+  marine — sur le menu, c'est-à-dire précisément là où les trois outils doivent
+  se ressembler ;
+- le lien Wikidata des cartes de mots-clefs restait bleu, sur toutes les cartes
+  portant un identifiant.
+
+Les trois suivent désormais les jetons.
+
+**La feuille de style est appelée en `?v=0.3.4`**, puisqu'elle change.
+
+## [0.3.3] — 2026-10-20
+
+### Ajouté
+
+**ValoVizu dans le menu des outils (`index.html`)**
+Le tableau de bord ValoVizu rejoint le menu de navigation, qui présente
+désormais les trois outils de la suite. Le lien est relatif (`../valoVizu/`) et
+suppose les trois applications voisines sous `outils/`, comme les liens
+existants. Le nom du dossier respecte la casse — `valoVizu`, et non `valovizu` :
+sous Apache un lien mal capitalisé renvoie un 404 sans autre signe.
+
+L'entrée est masquée en session EC et en session DU : `fromUrl` est vrai dans
+les deux cas, un lien de directeur·rice d'unité portant lui aussi `idCreator`
+et `t`. Elle porte la classe `app-dropdown-operator`, qu'il suffira d'ajouter
+à un outil ultérieur pour qu'il suive la même règle.
+
+**Attention — ceci relève de l'hygiène d'interface, non du contrôle d'accès.**
+Les données de l'instance étant publiques en lecture, ValoVizu reste atteignable
+par son adresse quand bien même aucun menu ne la montre. Une restriction réelle
+se règle côté serveur, par authentification ou filtrage sur le dossier `valo/`.
+
+La feuille de style n'ayant pas changé, son paramètre de version reste à
+`?v=0.3.2` — il ne suit que les modifications de `main.css`.
+
 ## [0.3.2] — 2026-09-30
 
 ### Nouvelles fonctionnalités

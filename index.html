@@ -9,18 +9,24 @@
          version. Sans lui, le navigateur sert l'ancien CSS avec le nouveau HTML
          (le .htaccess ne désactive le cache que pour index.html). À incrémenter
          à chaque release où main.css change. -->
-    <link rel="stylesheet" href="assets/main.css?v=0.3.2">
+    <link rel="stylesheet" href="assets/main.css?v=0.3.5">
 
 </head>
 <body>
 
 <!-- HEADER -->
 <header>
-    <div class="app-switcher" id="appSwitcher">
-        <div class="app-switcher-icon" aria-hidden="true">
-            <span></span><span></span><span></span>
-        </div>
-        <h1>Validation des Expertises</h1>
+    <!-- Le bouton des outils est détaché du titre et ancré au bord gauche du
+         bandeau : il tombe ainsi au même pixel dans les trois applications de
+         la suite, qui n'ont pas la même largeur de contenu. Le titre n'ouvre
+         donc plus le menu — seul ce bouton le fait, comme chez ValoVizu.
+         L'identifiant est conservé : le script est inchangé. -->
+    <div class="toolbox">
+        <button class="toolbox-btn" id="appSwitcher" type="button"
+                aria-haspopup="menu" aria-expanded="false"
+                aria-label="Autres outils" title="Autres outils">
+            <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+        </button>
         <div class="app-dropdown" id="appDropdown">
             <div class="app-dropdown-header">Outils</div>
             <a class="app-dropdown-item" id="linkToValidKeyword" href="../validKeyword/index.html">
@@ -29,11 +35,22 @@
             <div class="app-dropdown-item app-dropdown-item--active">
                 <span class="app-dropdown-dot"></span>✅ validExpertises
             </div>
-            <div class="app-dropdown-version">v0.3.2</div>
+            <a class="app-dropdown-item app-dropdown-operator" href="../valoVizu/index.html">
+                <span class="app-dropdown-dot"></span>📊 ValoVizu
+            </a>
+            <div class="app-dropdown-version">v0.3.5</div>
         </div>
     </div>
-    <h4>Expert : <span id="creator"></span></h4>
-    <button id="btnOpenSettings" class="btn btn-ghost">&#9881; Paramètres</button>
+    <div class="header-title">
+        <p class="surtitre">Université&nbsp;Paris&nbsp;8 · Université des Créations</p>
+        <h1>Validation des Expertises</h1>
+    </div>
+    <!-- Regroupés à droite, comme dans cleanKeywords : les deux en-têtes ont
+         désormais la même structure à trois blocs. -->
+    <div class="header-right">
+        <h4>Expert : <span id="creator"></span></h4>
+        <button id="btnOpenSettings" class="btn btn-ghost">&#9881; Paramètres</button>
+    </div>
 </header>
 <!-- TOASTS -->
 <div class="toasts" id="toasts"></div>
@@ -343,6 +360,17 @@ const fromUrl = aUrl.params.has('idCreator') || aUrl.params.has('idAuthor') || a
 
 // En mode EC, masque le lien vers validKeyword (inaccessible sans authentification)
 if (fromUrl) document.getElementById('linkToValidKeyword').classList.add('hidden');
+
+// Outils réservés aux opérateurs. `fromUrl` est vrai pour une session EC comme
+// pour une session DU : un lien DU porte aussi idCreator et t. Les deux sont
+// donc écartés par la même condition.
+// Attention : ceci relève de l'hygiène d'interface, pas du contrôle d'accès.
+// ValoVizu reste atteignable par son adresse — sa restriction se règle côté
+// serveur. Tout outil ajouté plus tard n'a qu'à porter cette classe.
+if (fromUrl) {
+    document.querySelectorAll('.app-dropdown-operator')
+            .forEach(el => el.classList.add('hidden'));
+}
 
 // true si la session vient d'un lien DL (idLab présent)
 // → interface dispatch : liste ECs du labo, pas d'évaluation
