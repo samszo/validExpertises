@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.3.6] — 2026-10-22
+
+### Modifié
+
+**Menu des outils harmonisé entre les trois applications (`index.html`, `main.css`)**
+Le survol passe du gris au rose pâle de la charte, l'entrée courante gardant un
+gris neutre. Les deux fonds étaient jusqu'ici presque identiques — `#f3f4f6`
+contre `#EFE8EB` — et ne se distinguaient que parce que rien ne prend la mise au
+point à l'ouverture ; ce n'est pas le cas dans ValoVizu, où la confusion s'était
+effectivement produite. Les derniers gris écrits en dur du menu — en-tête,
+pastille, ligne de version, filet — passent aux jetons.
+
+### Ajouté
+
+**Entrée « Omeka S » dans le menu (`index.html`, `main.css`)**
+L'instance figure désormais au bas du menu, détachée par un filet : elle n'est
+pas un outil de la suite, elle est ce que la suite interroge. Son adresse est
+déduite de celle de l'API plutôt qu'écrite dans le balisage, car elle change
+d'un déploiement à l'autre. Elle part dans un nouvel onglet, là où les outils
+voisins remplacent la page — on va y vérifier une fiche, pas quitter l'outil.
+Même comportement et même présentation que dans ValoVizu.
+L'entrée est réservée aux opérateurs. La classe `app-dropdown-operator` ne
+suffisait pas ici : le masquage par `fromUrl` s'exécute bien avant l'insertion,
+la classe `hidden` est donc posée à la création.
+
+
 ## [0.3.5] — 2026-10-20
 
 ### Modifié
